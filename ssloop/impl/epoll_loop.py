@@ -1,12 +1,8 @@
-#!/usr/bin/python
-
 import select
-
-from ssloop.loop import SSLoop
+from ..loop import SSLoop
 
 
 class EpollLoop(SSLoop):
-
     def __init__(self):
         super(EpollLoop, self).__init__()
         self._epoll = select.epoll()

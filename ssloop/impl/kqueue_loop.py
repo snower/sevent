@@ -1,15 +1,10 @@
-#!/usr/bin/python
-
 import select
-import ssloop.loop as loop
-from ssloop.loop import SSLoop
+from ..loop import SSLoop,MODE_NULL,MODE_IN,MODE_OUT
 from collections import defaultdict
 
 MAX_EVENTS = 1024
 
-
 class KqueueLoop(SSLoop):
-
     def __init__(self):
         super(KqueueLoop, self).__init__()
         self._kqueue = select.kqueue()
@@ -17,9 +12,9 @@ class KqueueLoop(SSLoop):
 
     def _control(self, fd, mode, flags):
         events = []
-        if mode & loop.MODE_IN:
+        if mode & MODE_IN:
             events.append(select.kevent(fd, select.KQ_FILTER_READ, flags))
-        if mode & loop.MODE_OUT:
+        if mode & MODE_OUT:
             events.append(select.kevent(fd, select.KQ_FILTER_WRITE, flags))
         for e in events:
             self._kqueue.control([e], 0)
@@ -28,13 +23,13 @@ class KqueueLoop(SSLoop):
         if timeout < 0:
             timeout = None  # kqueue behaviour
         events = self._kqueue.control(None, MAX_EVENTS, timeout)
-        results = defaultdict(lambda: loop.MODE_NULL)
+        results = defaultdict(lambda: MODE_NULL)
         for e in events:
             fd = e.ident
             if e.filter == select.KQ_FILTER_READ:
-                results[fd] |= loop.MODE_IN
+                results[fd] |= MODE_IN
             elif e.filter == select.KQ_FILTER_WRITE:
-                results[fd] |= loop.MODE_OUT
+                results[fd] |= MODE_OUT
         return results.iteritems()
 
     def _add_fd(self, fd, mode):

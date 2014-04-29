@@ -1,14 +1,9 @@
-#!/usr/bin/python
-
 import select
-
 from collections import defaultdict
-from ssloop.loop import SSLoop
-import ssloop.loop as loop
+from ..loop import SSLoop,MODE_NULL,MODE_IN,MODE_OUT,MODE_ERR
 
 
 class SelectLoop(SSLoop):
-
     def __init__(self):
         super(SelectLoop, self).__init__()
         self._r_list = set()
@@ -16,19 +11,22 @@ class SelectLoop(SSLoop):
         self._x_list = set()
 
     def _poll(self, timeout):
-        r, w, x = select.select(self._r_list, self._w_list, self._x_list)
-        results = defaultdict(lambda: loop.MODE_NULL)
-        for p in [(r, loop.MODE_IN), (w, loop.MODE_OUT), (x, loop.MODE_ERR)]:
+        try:
+            r, w, x = select.select(self._r_list, self._w_list, self._x_list)
+        except Exception,e:
+            return []
+        results = defaultdict(lambda: MODE_NULL)
+        for p in [(r, MODE_IN), (w, MODE_OUT), (x, MODE_ERR)]:
             for fd in p[0]:
                 results[fd] |= p[1]
         return results.items()
 
     def _add_fd(self, fd, mode):
-        if mode & loop.MODE_IN:
+        if mode & MODE_IN:
             self._r_list.add(fd)
-        if mode & loop.MODE_OUT:
+        if mode & MODE_OUT:
             self._w_list.add(fd)
-        if mode & loop.MODE_ERR:
+        if mode & MODE_ERR:
             self._x_list.add(fd)
 
     def _remove_fd(self, fd):
