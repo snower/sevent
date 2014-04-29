@@ -44,7 +44,6 @@ class Socket(event.EventEmitter):
             else:self.close()
 
     def close(self):
-        if self._state==STATE_CLOSED:return
         if self._state == STATE_CONNECTING and self._connect_handler:
             self._loop.remove_handler(self._connect_handler)
             self._connect_handler = None
@@ -55,7 +54,6 @@ class Socket(event.EventEmitter):
             if self._write_handler:
                 self._loop.remove_handler(self._write_handler)
                 self._write_handler = None
-        elif self._state == STATE_INITIALIZED:
             try:
                 self._socket.close()
             except Exception,e:
@@ -69,7 +67,7 @@ class Socket(event.EventEmitter):
         logging.error("socket error:%s",error)
 
     def _connect_cb(self):
-        if self._state != STATE_CONNECTING:return False
+        assert self._state == STATE_CONNECTING
         self._loop.remove_handler(self._connect_handler)
         self._connect_handler = None
         self._init_streaming()
@@ -100,7 +98,7 @@ class Socket(event.EventEmitter):
         self._state = STATE_CONNECTING
 
     def _read_cb(self):
-        if self._state not in (STATE_STREAMING, STATE_CLOSING):return False
+        assert self._state in (STATE_STREAMING, STATE_CLOSING)
         self._read()
 
     def _read(self):
@@ -124,12 +122,13 @@ class Socket(event.EventEmitter):
                 self.close()
 
     def _write_cb(self):
+        assert self._state in (STATE_STREAMING, STATE_CLOSING)
         with self._lock:
             result = self._write()
         if result:self.emit('drain', self)
 
     def _write(self):
-        if self._state not in (STATE_STREAMING, STATE_CLOSING):return False
+        assert self._state in (STATE_STREAMING, STATE_CLOSING)
         while len(self._buffers) > 0:
             data = self._buffers.popleft()
             try:
@@ -190,7 +189,7 @@ class Server(event.EventEmitter):
         self._state = STATE_LISTENING
 
     def _accept_cb(self):
-        if self._state != STATE_LISTENING:return False
+        assert self._state == STATE_LISTENING
         conn, addr = self._socket.accept()
         sock = Socket(loop=self._loop, sock=conn)
         self.emit('connection', self, sock)

@@ -12,7 +12,7 @@ class SelectLoop(SSLoop):
 
     def _poll(self, timeout):
         try:
-            r, w, x = select.select(self._r_list, self._w_list, self._x_list)
+            r, w, x = select.select(self._r_list, self._w_list, self._x_list,timeout)
         except Exception,e:
             return []
         results = defaultdict(lambda: MODE_NULL)
