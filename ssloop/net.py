@@ -69,7 +69,7 @@ class Socket(event.EventEmitter):
         logging.error("socket error:%s",error)
 
     def _connect_cb(self):
-        assert self._state == STATE_CONNECTING
+        if self._state != STATE_CONNECTING:return False
         self._loop.remove_handler(self._connect_handler)
         self._connect_handler = None
         self._init_streaming()
@@ -100,7 +100,7 @@ class Socket(event.EventEmitter):
         self._state = STATE_CONNECTING
 
     def _read_cb(self):
-        assert self._state == STATE_STREAMING
+        if self._state not in (STATE_STREAMING, STATE_CLOSING):return False
         self._read()
 
     def _read(self):
@@ -124,13 +124,12 @@ class Socket(event.EventEmitter):
                 self.close()
 
     def _write_cb(self):
-        assert self._state in (STATE_STREAMING, STATE_CLOSING)
         with self._lock:
             result = self._write()
         if result:self.emit('drain', self)
 
     def _write(self):
-        assert self._state in (STATE_STREAMING, STATE_CLOSING)
+        if self._state not in (STATE_STREAMING, STATE_CLOSING):return False
         while len(self._buffers) > 0:
             data = self._buffers.popleft()
             try:
@@ -191,7 +190,7 @@ class Server(event.EventEmitter):
         self._state = STATE_LISTENING
 
     def _accept_cb(self):
-        assert self._state == STATE_LISTENING
+        if self._state != STATE_LISTENING:return False
         conn, addr = self._socket.accept()
         sock = Socket(loop=self._loop, sock=conn)
         self.emit('connection', self, sock)
