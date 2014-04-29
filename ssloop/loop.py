@@ -3,6 +3,7 @@
 import select
 import time
 import heapq
+import threading
 import logging
 from collections import defaultdict
 import sys
@@ -84,6 +85,8 @@ class SSLoop(object):
         # {'fd1':[handler, handler, ...], 'fd2':[handler, handler, ...]}
 
         self._on_error = None
+
+        self._lock=threading.Lock()
 
     def time(self):
         return time.time()
@@ -168,47 +171,50 @@ class SSLoop(object):
         self._stopped = True
 
     def add_callback(self, callback):
-        handler = Handler(callback)
-        self._handlers_with_no_fd.append(handler)
-        return handler
+        with self._lock:
+            handler = Handler(callback)
+            self._handlers_with_no_fd.append(handler)
+            return handler
 
     def add_timeout(self, timeout, callback):
-        handler = Handler(callback, deadline=self.time() + timeout)
-        # sort timeouts in order
-        heapq.heappush(self._handlers_with_timeout, handler)
-        return handler
+        with self._lock:
+            handler = Handler(callback, deadline=self.time() + timeout)
+            # sort timeouts in order
+            heapq.heappush(self._handlers_with_timeout, handler)
+            return handler
 
     def add_fd(self, fd, mode, callback):
-        if not (isinstance(fd, int) or isinstance(fd, long)):
-            fd = fd.fileno()
-        handler = Handler(callback, fd=fd, mode=mode)
-        l = self._fd_to_handler[fd]
-        l.append(handler)
-        if len(l) == 1:
-            self._add_fd(fd, mode)
-        else:
-            self._update_fd(fd)
-        return handler
-
-    def update_handler_mode(self, handler, mode):
-        handler.mode = mode
-        self._update_fd(handler.fd)
-
-    def remove_handler(self, handler):
-        # TODO: handle exceptions friendly
-        if handler.deadline:
-            self._handlers_with_timeout.remove(handler)
-        elif handler.fd:
-            fd = handler.fd
+        with self._lock:
             if not (isinstance(fd, int) or isinstance(fd, long)):
                 fd = fd.fileno()
+            handler = Handler(callback, fd=fd, mode=mode)
             l = self._fd_to_handler[fd]
-            # TODO: handle exceptions friendly
-            l.remove(handler)
-            if len(l) == 0:
-                self._remove_fd(fd)
-                del self._fd_to_handler[fd]
+            l.append(handler)
+            if len(l) == 1:
+                self._add_fd(fd, mode)
             else:
                 self._update_fd(fd)
-        else:
-            self._handlers_with_no_fd.remove(handler)
+            return handler
+
+    def update_handler_mode(self, handler, mode):
+        with self._lock:
+            handler.mode = mode
+            self._update_fd(handler.fd)
+
+    def remove_handler(self, handler):
+        with self._lock:
+            if handler.deadline:
+                self._handlers_with_timeout.remove(handler)
+            elif handler.fd:
+                fd = handler.fd
+                if not (isinstance(fd, int) or isinstance(fd, long)):
+                    fd = fd.fileno()
+                l = self._fd_to_handler[fd]
+                l.remove(handler)
+                if len(l) == 0:
+                    self._remove_fd(fd)
+                    del self._fd_to_handler[fd]
+                else:
+                    self._update_fd(fd)
+            else:
+                self._handlers_with_no_fd.remove(handler)
