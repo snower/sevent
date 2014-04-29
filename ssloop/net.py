@@ -17,10 +17,11 @@ STATE_CLOSING = 16
 RECV_BUFSIZE = 4096
 
 class Socket(event.EventEmitter):
-    def __init__(self, loop=None, sock=None):
+    def __init__(self, loop=None, sock=None,addr=None):
         super(Socket, self).__init__()
         self._socket = None
         self._loop =loop or instance()
+        self._addr=addr
         self._buffers = collections.deque()
         self._state = STATE_INITIALIZED
         self._connect_handler = None
@@ -31,6 +32,10 @@ class Socket(event.EventEmitter):
             self._socket = sock
             sock.setblocking(False)
             self._init_streaming()
+
+    @property
+    def addr(self):
+        return self._addr
 
     def __del__(self):
         self.close()
@@ -96,6 +101,7 @@ class Socket(event.EventEmitter):
                 return
         self._connect_handler = self._loop.add_fd(self._socket, loop_.MODE_OUT, self._connect_cb)
         self._state = STATE_CONNECTING
+        self._addr=addr[4]
 
     def _read_cb(self):
         assert self._state in (STATE_STREAMING, STATE_CLOSING)
@@ -191,7 +197,7 @@ class Server(event.EventEmitter):
     def _accept_cb(self):
         assert self._state == STATE_LISTENING
         conn, addr = self._socket.accept()
-        sock = Socket(loop=self._loop, sock=conn)
+        sock = Socket(loop=self._loop, sock=conn,addr=addr)
         self.emit('connection', self, sock)
 
     def _error(self, error):
