@@ -1,6 +1,6 @@
 import select
 import time
-import heapq
+import bisect
 import logging
 from collections import defaultdict
 
@@ -53,8 +53,8 @@ class Handler(object):
         self.callback = callback
         self.fd = fd
         self.mode = mode
-        self.deadline = 0
-        self.error = None  # a message describing the error
+        self.deadline = deadline
+        self.error = error  # a message describing the error
 
     def __cmp__(self, other):
         if self.deadline and other.deadline:
@@ -110,12 +110,10 @@ class SSLoop(object):
         while not self._stopped:
             cur_time = self.time()
             while len(self._timeout_handlers) > 0:
-                handler = heapq.heappop(self._timeout_handlers)
+                handler = self._timeout_handlers[0]
                 if handler.deadline <= cur_time:
-                    self._timeout_handlers.remove(handler)
                     self._call_handler(handler)
                 else:
-                    # because the queue is sorted
                     break
 
             # call handlers without fd
@@ -141,7 +139,7 @@ class SSLoop(object):
 
     def timeout(self, timeout, callback):
         handler = Handler(callback, deadline=self.time() + timeout)
-        heapq.heappush(self._timeout_handlers, handler)
+        bisect.insort(self._timeout_handlers, handler)
         return handler
 
     def add_fd(self, fd, mode, callback):
