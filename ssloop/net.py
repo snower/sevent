@@ -86,7 +86,7 @@ class Socket(event.EventEmitter):
         self._state = STATE_STREAMING
         self._read_handler = self._loop.add_fd(self._socket, loop_.MODE_IN, self._read_cb)
 
-    def connect(self, address,timeout=30):
+    def connect(self, address,timeout=5):
         assert self._state == STATE_INITIALIZED
         try:
             addrs = socket.getaddrinfo(address[0], address[1], 0, 0, socket.SOL_TCP)
