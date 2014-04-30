@@ -166,7 +166,7 @@ class Socket(event.EventEmitter):
             if not self._write_handler:
                 self._write_handler = self._loop.add_fd(self._socket, loop_.MODE_OUT, self._write_cb)
                 if not self._write_handler:
-                    self.close()
+                    self._error(Exception("write data add fd error"))
                     return False
             return self._write()
 
