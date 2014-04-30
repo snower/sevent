@@ -113,6 +113,7 @@ class SSLoop(object):
                 handler = self._timeout_handlers[0]
                 if handler.deadline <= cur_time:
                     self._call_handler(handler)
+                    self._timeout_handlers.pop(0)
                 else:
                     break
 
