@@ -112,8 +112,8 @@ class SSLoop(object):
             while len(self._timeout_handlers) > 0:
                 handler = self._timeout_handlers[0]
                 if handler.deadline <= cur_time:
-                    self._call_handler(handler)
                     self._timeout_handlers.pop(0)
+                    self._call_handler(handler)
                 else:
                     break
 
@@ -141,6 +141,7 @@ class SSLoop(object):
     def timeout(self, timeout, callback):
         handler = Handler(callback, deadline=self.time() + timeout)
         bisect.insort(self._timeout_handlers, handler)
+        print len(self._timeout_handlers),self.time(),timeout
         return handler
 
     def add_fd(self, fd, mode, callback):
