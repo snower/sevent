@@ -49,6 +49,7 @@ class Socket(event.EventEmitter):
             else:self.close()
 
     def close(self):
+        if self._state==STATE_CLOSED:return
         if self._state == STATE_CONNECTING and self._connect_handler:
             self._loop.remove_handler(self._connect_handler)
             self._connect_handler = None
