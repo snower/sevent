@@ -92,7 +92,7 @@ class SSLoop(object):
         except Exception,e:
             if self._on_error is not None and callable(self._on_error):
                 self._on_error(e)
-                logging.error("loop callback error:%s",e)
+            logging.exception("loop callback error:%s",e)
 
     def _get_fd_mode(self, fd):
         mode = MODE_NULL
