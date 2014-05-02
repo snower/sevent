@@ -116,7 +116,7 @@ class Socket(event.EventEmitter):
     def _read(self):
         cache = []
         data = False
-        while 1:
+        while self._state==STATE_STREAMING:
             try:
                 data = self._socket.recv(RECV_BUFSIZE)
                 if not data:break
@@ -141,7 +141,7 @@ class Socket(event.EventEmitter):
 
     def _write(self):
         assert self._state in (STATE_STREAMING, STATE_CLOSING)
-        while len(self._buffers) > 0:
+        while self._state==STATE_STREAMING and self._buffers:
             data = self._buffers.popleft()
             try:
                 r = self._socket.send(data)
@@ -164,12 +164,13 @@ class Socket(event.EventEmitter):
     def write(self, data):
         with self._lock:
             self._buffers.append(data)
-            if not self._write_handler:
+            if not self._write() and not self._write_handler:
                 self._write_handler = self._loop.add_fd(self._socket, loop_.MODE_OUT, self._write_cb)
                 if not self._write_handler:
                     self._error(Exception("write data add fd error"))
-                    return False
-            return self._write()
+                return False
+            self.emit('drain', self)
+            return True
 
 
 class Server(event.EventEmitter):
