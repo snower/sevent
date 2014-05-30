@@ -168,7 +168,8 @@ class Socket(event.EventEmitter):
                 self._write_handler = self._loop.add_fd(self._socket, loop_.MODE_OUT, self._write_cb)
                 if not self._write_handler:
                     self._error(Exception("write data add fd error"))
-                return False
+                    return False
+                return True
             self.emit('drain', self)
             return True
 
