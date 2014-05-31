@@ -117,11 +117,6 @@ class SSLoop(object):
                 else:
                     break
 
-            # call handlers without fd
-            for handler in self._handlers:
-                self._call_handler(handler)
-            self._handlers = []
-
             timeout=self._timeout_handlers[0].deadline-self.time() if len(self._timeout_handlers) > 0 else 0.1
             fds_ready = self._poll(timeout)
             for fd, mode in fds_ready:
@@ -129,6 +124,11 @@ class SSLoop(object):
                 for handler in handlers:
                     if handler.mode & mode != 0:
                         self._call_handler(handler)
+
+            # call handlers without fd
+            for handler in self._handlers:
+                self._call_handler(handler)
+            self._handlers = []
 
     def stop(self):
         self._stopped = True
