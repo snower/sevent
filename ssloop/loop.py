@@ -48,18 +48,23 @@ MODE_NVAL = 0x20
 
 
 class Handler(object):
-    def __init__(self, callback, fd=None, mode=None, deadline=None, error=None):
+    def __init__(self, callback, fd=None, mode=None, deadline=None, error=None,args=(),kwargs={}):
         '''deadline here is absolute timestamp'''
         self.callback = callback
         self.fd = fd
         self.mode = mode
         self.deadline = deadline
         self.error = error  # a message describing the error
+        self.args=args
+        self.kwargs=kwargs
 
     def __cmp__(self, other):
         if self.deadline and other.deadline:
             return cmp(self.deadline,other.deadline)
         return cmp(id(self),id(other))
+
+    def __call__(self):
+        self.callback(*self.args,**self.kwargs)
 
 
 class SSLoop(object):
@@ -88,7 +93,7 @@ class SSLoop(object):
 
     def _call_handler(self, handler):
         try:
-            handler.callback()
+            handler()
         except Exception,e:
             if self._on_error is not None and callable(self._on_error):
                 self._on_error(e)
@@ -133,13 +138,13 @@ class SSLoop(object):
     def stop(self):
         self._stopped = True
 
-    def sync(self, callback):
-        handler = Handler(callback)
+    def sync(self, callback,*args,**kwargs):
+        handler = Handler(callback,args=args,kwargs=kwargs)
         self._handlers.append(handler)
         return handler
 
-    def timeout(self, timeout, callback):
-        handler = Handler(callback, deadline=self.time() + timeout)
+    def timeout(self, timeout, callback,*args,**kwargs):
+        handler = Handler(callback, deadline=self.time() + timeout,args=args,kwargs=kwargs)
         bisect.insort(self._timeout_handlers, handler)
         return handler
 

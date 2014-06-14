@@ -65,10 +65,10 @@ class Socket(event.EventEmitter):
             except Exception,e:
                 logging.error("socket close socket error:%s",e)
         self._state = STATE_CLOSED
-        self.emit('close', self)
+        self._loop.sync(self.emit,'close', self)
 
     def _error(self, error):
-        self.emit('error', self, error)
+        self._loop.sync(self.emit,'error', self, error)
         self.close()
         logging.error("socket error:%s",error)
 
@@ -77,7 +77,7 @@ class Socket(event.EventEmitter):
         self._loop.remove_handler(self._connect_handler)
         self._connect_handler = None
         self._init_streaming()
-        self.emit('connect', self)
+        self._loop.sync(self.emit,'connect', self)
 
     def _timeout_cb(self):
         if self._state==STATE_CONNECTING:
@@ -127,9 +127,10 @@ class Socket(event.EventEmitter):
                     self._error(e)
                     return
 
-        if cache:self.emit('data', self, ''.join(cache))
+        if cache:
+            self._loop.sync(self.emit,'data', self, ''.join(cache))
         if not data:
-            self.emit('end', self)
+            self._loop.sync(self.emit,'end', self)
             if self._state == STATE_STREAMING:
                 self.close()
 
@@ -137,7 +138,8 @@ class Socket(event.EventEmitter):
         assert self._state in (STATE_STREAMING, STATE_CLOSING)
         with self._lock:
             result = self._write()
-        if result:self.emit('drain', self)
+        if result:
+            self._loop.sync(self.emit,'drain', self)
 
     def _write(self):
         assert self._state in (STATE_STREAMING, STATE_CLOSING)
@@ -170,7 +172,7 @@ class Socket(event.EventEmitter):
                     self._error(Exception("write data add fd error"))
                     return False
                 return True
-            self.emit('drain', self)
+            self._loop.sync(self.emit,'drain', self)
             return True
 
 
@@ -206,10 +208,10 @@ class Server(event.EventEmitter):
         assert self._state == STATE_LISTENING
         conn, addr = self._socket.accept()
         sock = Socket(loop=self._loop, sock=conn,addr=addr)
-        self.emit('connection', self, sock)
+        self._loop.sync(self.emit,"connection",self,sock)
 
     def _error(self, error):
-        self.emit('error', self, error)
+        self._loop.sync(self.emit,'error', self, error)
         self.close()
         logging.error("server error:%s",error)
 
@@ -224,4 +226,4 @@ class Server(event.EventEmitter):
                 except Exception,e:
                     logging.error("server close socket error:%s",e)
             self._state = STATE_CLOSED
-            self.emit('close', self)
+            self._loop.sync(self.emit,'close', self)
