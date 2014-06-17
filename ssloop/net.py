@@ -41,7 +41,7 @@ class Socket(event.EventEmitter):
         self.close()
 
     def end(self):
-        assert self._state in (STATE_INITIALIZED, STATE_CONNECTING, STATE_STREAMING)
+        if self._state not in (STATE_INITIALIZED, STATE_CONNECTING, STATE_STREAMING):return
         if self._state in (STATE_INITIALIZED, STATE_CONNECTING):
             self.close()
         else:
@@ -73,7 +73,7 @@ class Socket(event.EventEmitter):
         logging.error("socket error:%s",error)
 
     def _connect_cb(self):
-        assert self._state == STATE_CONNECTING
+        if self._state != STATE_CONNECTING:return
         self._loop.remove_handler(self._connect_handler)
         self._connect_handler = None
         self._init_streaming()
@@ -88,7 +88,7 @@ class Socket(event.EventEmitter):
         self._read_handler = self._loop.add_fd(self._socket, loop_.MODE_IN, self._read_cb)
 
     def connect(self, address,timeout=5):
-        assert self._state == STATE_INITIALIZED
+        if self._state != STATE_INITIALIZED:return
         try:
             addrs = socket.getaddrinfo(address[0], address[1], 0, 0, socket.SOL_TCP)
             # support both IPv4 and IPv6 addresses
@@ -110,8 +110,8 @@ class Socket(event.EventEmitter):
         self._addr=addr[4]
 
     def _read_cb(self):
-        assert self._state in (STATE_STREAMING, STATE_CLOSING)
-        self._read()
+        if self._state in (STATE_STREAMING, STATE_CLOSING):
+            self._read()
 
     def _read(self):
         cache = []
@@ -135,14 +135,14 @@ class Socket(event.EventEmitter):
                 self.close()
 
     def _write_cb(self):
-        assert self._state in (STATE_STREAMING, STATE_CLOSING)
+        if self._state not in (STATE_STREAMING, STATE_CLOSING):return
         with self._lock:
             result = self._write()
         if result:
             self._loop.sync(self.emit,'drain', self)
 
     def _write(self):
-        assert self._state in (STATE_STREAMING, STATE_CLOSING)
+        if self._state not in (STATE_STREAMING, STATE_CLOSING):return
         while self._state==STATE_STREAMING and self._buffers:
             data = self._buffers.popleft()
             try:
@@ -199,13 +199,13 @@ class Server(event.EventEmitter):
         self.close()
 
     def listen(self, backlog=128):
-        assert self._state == STATE_INITIALIZED
+        if self._state != STATE_INITIALIZED:return
         self._accept_handler = self._loop.add_fd(self._socket, loop_.MODE_IN, self._accept_cb)
         self._socket.listen(backlog)
         self._state = STATE_LISTENING
 
     def _accept_cb(self):
-        assert self._state == STATE_LISTENING
+        if self._state != STATE_LISTENING:return
         conn, addr = self._socket.accept()
         sock = Socket(loop=self._loop, sock=conn,addr=addr)
         self._loop.sync(self.emit,"connection",self,sock)
