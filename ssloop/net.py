@@ -1,6 +1,5 @@
 import socket
 import event
-import threading
 import loop as loop_
 from loop import instance
 import logging
@@ -26,7 +25,6 @@ class Socket(event.EventEmitter):
         self._state = STATE_INITIALIZED
         self._connect_handler = None
         self._write_handler = None
-        self._lock=threading.Lock()
 
         if sock is not None:
             self._socket = sock
@@ -45,8 +43,10 @@ class Socket(event.EventEmitter):
         if self._state in (STATE_INITIALIZED, STATE_CONNECTING):
             self.close()
         else:
-            if self._buffers:self._state = STATE_CLOSING
-            else:self.close()
+            if self._buffers:
+                self._state = STATE_CLOSING
+            else:
+                self.close()
 
     def close(self):
         if self._state==STATE_CLOSED:return
@@ -136,13 +136,11 @@ class Socket(event.EventEmitter):
 
     def _write_cb(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):return
-        with self._lock:
-            result = self._write()
+        result = self._write()
         if result:
             self._loop.sync(self.emit,'drain', self)
 
     def _write(self):
-        if self._state not in (STATE_STREAMING, STATE_CLOSING):return
         while self._state==STATE_STREAMING and self._buffers:
             data = self._buffers.popleft()
             try:
@@ -153,7 +151,8 @@ class Socket(event.EventEmitter):
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                     self._buffers.appendleft(data)
-                else:self._error(e)
+                else:
+                    self._error(e)
                 return False
 
         if self._write_handler:
@@ -164,16 +163,16 @@ class Socket(event.EventEmitter):
         return True
 
     def write(self, data):
-        with self._lock:
-            self._buffers.append(data)
-            if not self._write() and not self._write_handler:
-                self._write_handler = self._loop.add_fd(self._socket, loop_.MODE_OUT, self._write_cb)
-                if not self._write_handler:
-                    self._error(Exception("write data add fd error"))
-                    return False
-                return True
-            self._loop.sync(self.emit,'drain', self)
+        if self._state !=STATE_STREAMING:return False
+        self._buffers.append(data)
+        if not self._write() and not self._write_handler:
+            self._write_handler = self._loop.add_fd(self._socket, loop_.MODE_OUT, self._write_cb)
+            if not self._write_handler:
+                self._error(Exception("write data add fd error"))
+                return False
             return True
+        self._loop.sync(self.emit,'drain', self)
+        return True
 
 
 class Server(event.EventEmitter):
