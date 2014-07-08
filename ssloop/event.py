@@ -8,13 +8,13 @@ class EventEmitter(object):
         self._events_once = defaultdict(dict)
 
     def on(self, event_name, callback):
-        self._events[event_name][id(callback)]=callback
+        self._events[event_name][str(callback)]=callback
 
     def once(self, event_name, callback):
-        self._events_once[event_name][id(callback)]=callback
+        self._events_once[event_name][str(callback)]=callback
 
     def remove_listener(self, event_name, callback):
-        cb_id=id(callback)
+        cb_id=str(callback)
         if event_name in self._events and cb_id in self._events[event_name]:
             del self._events[event_name][cb_id]
         if event_name in self._events_once and cb_id in self._events_once[event_name]:
