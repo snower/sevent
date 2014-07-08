@@ -14,10 +14,11 @@ class EventEmitter(object):
         self._events_once[event_name][id(callback)]=callback
 
     def remove_listener(self, event_name, callback):
-        if event_name in self._events and id(callback) in self._events[event_name]:
-            del self._events[event_name][id(callback)]
-        if event_name in self._events_once and id(callback) in self._events_once[event_name]:
-            del self._events_once[event_name][id(callback)]
+        cb_id=id(callback)
+        if event_name in self._events and cb_id in self._events[event_name]:
+            del self._events[event_name][cb_id]
+        if event_name in self._events_once and cb_id in self._events_once[event_name]:
+            del self._events_once[event_name][cb_id]
 
     def remove_all_listeners(self, event_name=None):
         self._events[event_name] = {}
@@ -33,8 +34,7 @@ class EventEmitter(object):
 
         callbacks=self._events_once[event_name].values()
         self._events_once[event_name]={}
-        while callbacks:
-            cb=callbacks.pop()
+        for cb in callbacks:
             try:
                 cb(*args, **kwargs)
             except Exception,e:
