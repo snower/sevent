@@ -66,6 +66,7 @@ class Socket(event.EventEmitter):
                 logging.error("socket close socket error:%s",e)
         self._state = STATE_CLOSED
         self._loop.sync(self.emit,'close', self)
+        self.remove_all_listeners()
 
     def _error(self, error):
         self._loop.sync(self.emit,'error', self, error)
@@ -226,3 +227,4 @@ class Server(event.EventEmitter):
                     logging.error("server close socket error:%s",e)
             self._state = STATE_CLOSED
             self._loop.sync(self.emit,'close', self)
+            self.remove_all_listeners()

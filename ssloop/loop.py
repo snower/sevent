@@ -20,6 +20,9 @@ def instance():
         _ssloop = _ssloop_cls()
         return _ssloop
 
+def current():
+    return _ssloop
+
 
 def init():
     global _ssloop_cls
