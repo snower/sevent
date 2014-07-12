@@ -65,8 +65,10 @@ class Socket(event.EventEmitter):
             except Exception,e:
                 logging.error("socket close socket error:%s",e)
         self._state = STATE_CLOSED
-        self._loop.sync(self.emit,'close', self)
-        self.remove_all_listeners()
+        def on_close():
+            self.emit('close', self)
+            self.remove_all_listeners()
+        self._loop.sync(on_close)
 
     def _error(self, error):
         self._loop.sync(self.emit,'error', self, error)
@@ -226,5 +228,7 @@ class Server(event.EventEmitter):
                 except Exception,e:
                     logging.error("server close socket error:%s",e)
             self._state = STATE_CLOSED
-            self._loop.sync(self.emit,'close', self)
-            self.remove_all_listeners()
+            def on_close():
+                self.emit('close', self)
+                self.remove_all_listeners()
+            self._loop.sync(on_close)
