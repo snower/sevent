@@ -49,11 +49,11 @@ class Socket(event.EventEmitter):
                 self.close()
 
     def close(self):
-        if self._state==STATE_CLOSED:return
+        if self._state == STATE_CLOSED:return
         if self._state == STATE_CONNECTING and self._connect_handler:
             self._loop.remove_handler(self._connect_handler)
             self._connect_handler = None
-        elif self._state == STATE_STREAMING or self._state == STATE_CLOSING:
+        elif self._state in (STATE_STREAMING, STATE_CLOSING):
             if self._read_handler:
                 self._loop.remove_handler(self._read_handler)
                 self._read_handler = None
@@ -119,7 +119,7 @@ class Socket(event.EventEmitter):
     def _read(self):
         cache = []
         data = False
-        while self._state==STATE_STREAMING:
+        while self._state in (STATE_STREAMING, STATE_CLOSING):
             try:
                 data = self._socket.recv(RECV_BUFSIZE)
                 if not data:break
@@ -134,7 +134,7 @@ class Socket(event.EventEmitter):
             self._loop.sync(self.emit,'data', self, ''.join(cache))
         if not data:
             self._loop.sync(self.emit,'end', self)
-            if self._state == STATE_STREAMING:
+            if self._state in (STATE_STREAMING, STATE_CLOSING):
                 self.close()
 
     def _write_cb(self):
@@ -144,7 +144,7 @@ class Socket(event.EventEmitter):
             self._loop.sync(self.emit,'drain', self)
 
     def _write(self):
-        while self._state==STATE_STREAMING and self._buffers:
+        while self._state in (STATE_STREAMING, STATE_CLOSING) and self._buffers:
             data = self._buffers.popleft()
             try:
                 r = self._socket.send(data)
@@ -166,7 +166,8 @@ class Socket(event.EventEmitter):
         return True
 
     def write(self, data):
-        if self._state !=STATE_STREAMING:return False
+        if self._state !=STATE_STREAMING:
+            return False
         self._buffers.append(data)
         if not self._write() and not self._write_handler:
             self._write_handler = self._loop.add_fd(self._socket, loop_.MODE_OUT, self._write_cb)

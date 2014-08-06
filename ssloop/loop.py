@@ -155,7 +155,8 @@ class SSLoop(object):
         if not (isinstance(fd, int) or isinstance(fd, long)):
             try:
                 fd = fd.fileno()
-            except:return False
+            except:
+                return False
         handler = Handler(callback, fd=fd, mode=mode)
         handlers = self._fd_handlers[fd]
         handlers.append(handler)
