@@ -5,7 +5,7 @@
 import logging
 import socket
 import errno
-from collections import deque, defaultdict
+from collections import deque
 from event import EventEmitter
 from loop import instance, MODE_IN, MODE_OUT
 
@@ -14,7 +14,7 @@ STATE_BINDING = 0x02
 STATE_CLOSING = 0x04
 STATE_CLOSED = 0x06
 
-RECV_BUFSIZE = 4096
+RECV_BUFSIZE = 0xffff
 
 class Socket(EventEmitter):
     def __init__(self, loop=None):
@@ -25,7 +25,7 @@ class Socket(EventEmitter):
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
         self._write_handler = None
-        self._rbuffers = defaultdict(deque)
+        self._rbuffers = deque()
         self._wbuffers = deque()
         self._state = STATE_STREAMING
 
@@ -67,16 +67,17 @@ class Socket(EventEmitter):
         while True:
             try:
                 data, address = self._socket.recvfrom(RECV_BUFSIZE)
-                self._rbuffers[address].append(data)
+                self._rbuffers.append((address,data))
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):break
                 else:
                     return self._error(e)
 
-        if self._rbuffers:
-            for address, rbuffers in self._rbuffers.iteritems():
-                self._loop.sync(self.emit, 'data', self, address, ''.join(rbuffers))
-            self._rbuffers = defaultdict(deque)
+        if ("data" in self._events or "data" in self._events_once):
+            while self._rbuffers:
+                address, data = self._rbuffers.popleft()
+                self._loop.sync(self.emit, 'data', self, address, data)
+            self._rbuffers = deque()
 
     def _write_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):

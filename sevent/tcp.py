@@ -15,7 +15,7 @@ STATE_LISTENING = 0x08
 STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
 
-RECV_BUFSIZE = 4096
+RECV_BUFSIZE = 0xffff
 
 class Socket(event.EventEmitter):
     def __init__(self, loop=None, socket=None, address=None):
@@ -140,7 +140,7 @@ class Socket(event.EventEmitter):
                     self._error(e)
                     return
 
-        if self._rbuffers:
+        if self._rbuffers and ("data" in self._events or "data" in self._events_once):
             self._loop.sync(self.emit,'data', self, ''.join(self._rbuffers))
             self._rbuffers = deque()
 
