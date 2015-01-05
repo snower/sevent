@@ -5,7 +5,7 @@
 import logging
 import socket
 import errno
-from collections import deque
+from collections import deque, defaultdict
 from event import EventEmitter
 from loop import instance, MODE_IN, MODE_OUT
 
@@ -25,7 +25,7 @@ class Socket(EventEmitter):
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
         self._write_handler = None
-        self._rbuffers = deque()
+        self._rbuffers = defaultdict(deque)
         self._wbuffers = deque()
         self._state = STATE_STREAMING
 
@@ -67,15 +67,16 @@ class Socket(EventEmitter):
         while True:
             try:
                 data, address = self._socket.recvfrom(RECV_BUFSIZE)
-                self._rbuffers.append(data)
+                self._rbuffers[address].append(data)
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):break
                 else:
                     return self._error(e)
 
         if self._rbuffers:
-            self._loop.sync(self.emit, 'data', self, ''.join(self._rbuffers))
-            self._rbuffers = deque()
+            for address, rbuffers in self._rbuffers.iteritems():
+                self._loop.sync(self.emit, 'data', self, address, ''.join(rbuffers))
+            self._rbuffers = defaultdict(deque)
 
     def _write_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):
@@ -83,7 +84,7 @@ class Socket(EventEmitter):
                 self._loop.sync(self.emit,'drain', self)
 
     def _write(self):
-        while True:
+        while self._wbuffers:
             address, data = self._wbuffers.popleft()
             try:
                 r = self._socket.sendto(data, address)

@@ -1,10 +1,7 @@
 import sys
-import ssloop
-import logging
+import sevent
 
-logging.basicConfig(level=logging.DEBUG)
-
-loop = ssloop.instance()
+loop = sevent.instance()
 
 
 def on_connection(s, conn):
@@ -18,7 +15,7 @@ def on_connection(s, conn):
 def on_data(s, data):
     print 'on_data'
     sys.stdout.write(data)
-    s.write('HTTP/1.0 200 OK\r\nHost: www.google.com\r\nConnection: Close\r\n\r\nHello world!\r\n')
+    s.write('HTTP/1.0 200 OK\r\nHost: 127.0.0.1\r\nConnection: Close\r\n\r\nHello world!\r\n')
     s.end()
 
 
@@ -35,9 +32,9 @@ def on_error(s, e):
     print e
 
 
-s = ssloop.Server(('0.0.0.0', 8080))
+s = sevent.tcp.Server()
 s.on('connection', on_connection)
 s.on('error', on_error)
-s.listen()
+s.listen(('0.0.0.0', 8080))
 
 loop.start()
