@@ -32,6 +32,7 @@ class Socket(event.EventEmitter):
 
         if self._socket:
             self._state = STATE_STREAMING
+            self._socket.setblocking(False)
             self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
 
     @property
