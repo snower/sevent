@@ -11,14 +11,17 @@ class Buffer(object):
         self._len = 0
         self._index = 0
 
+    def join(self):
+        self._buffer = self._buffer[self._index:] + "".join(self._buffers)
+        self._index, self._buffers = 0, deque()
+
     def write(self, data):
         self._buffers.append(data)
         self._len += len(data)
 
     def read(self, size):
         if size < 0 or len(self._buffer) - self._index < size:
-            self._buffer = self._buffer[self._index:] + "".join(self._buffers)
-            self._index, self._buffers = 0, deque()
+            self.join()
             if size < 0:
                 self._index, self._len = 0, 0
                 data, self._buffer = self._buffer, ''
@@ -34,17 +37,34 @@ class Buffer(object):
         return self._len
 
     def __str__(self):
-        return self.read(-1)
+        self.join()
+        return self._buffer
 
     def __nonzero__(self):
         return self._len > 0
 
     def __getitem__(self, index):
-        if index >= self._len:
+        if isinstance(index, int):
+            length = index + 1
+        elif isinstance(index, slice):
+            length = index.stop + 1
+        else:
             raise KeyError(index)
-        if index >= len(self._buffer):
-            self.read(-1)
-        return self._buffer[index]
+        if length > self._len:
+            raise IndexError(index)
+        if length > len(self._buffer):
+            self.join()
+        return self._buffer.__getitem__(index)
 
     def __iter__(self):
-        return self.read(-1)
+        for data in str(self):
+            yield data
+        raise StopIteration()
+
+    def __contains__(self, item):
+        self.join()
+        return self._buffer.__contains__(item)
+
+    def __hash__(self):
+        self.join()
+        self._buffer.__hash__()

@@ -180,7 +180,7 @@ class Socket(event.EventEmitter):
     def write(self, data):
         if self._state !=STATE_STREAMING:
             return False
-        self._wbuffers.append(data)
+        self._wbuffers.append(data.read(-1) if isinstance(data, Buffer) else data)
         if not self._write():
             if not self._write_handler:
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
