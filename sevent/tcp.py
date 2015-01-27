@@ -6,6 +6,7 @@ import socket
 import errno
 import event
 from loop import instance, MODE_IN, MODE_OUT
+from buffer import Buffer
 
 
 STATE_INITIALIZED = 0x01
@@ -26,7 +27,7 @@ class Socket(event.EventEmitter):
         self._connect_handler = None
         self._read_handler = None
         self._write_handler = None
-        self._rbuffers = deque()
+        self._rbuffers = Buffer()
         self._wbuffers = deque()
         self._state = STATE_INITIALIZED
 
@@ -134,7 +135,7 @@ class Socket(event.EventEmitter):
                 data = self._socket.recv(RECV_BUFSIZE)
                 if not data:
                     break
-                self._rbuffers.append(data)
+                self._rbuffers.write(data)
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):break
                 else:
@@ -142,8 +143,7 @@ class Socket(event.EventEmitter):
                     return
 
         if self._rbuffers and ("data" in self._events or "data" in self._events_once):
-            self._loop.sync(self.emit,'data', self, ''.join(self._rbuffers))
-            self._rbuffers = deque()
+            self._loop.sync(self.emit,'data', self, self._rbuffers)
 
         if not data:
             self._loop.sync(self.emit,'end', self)
