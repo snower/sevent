@@ -32,9 +32,10 @@ class DNSCache(object):
         self.default_ttl = default_ttl
         self._cache = {}
 
-    def set(self, hostname, ip, ttl = None):
+    def set(self, hostname, ip, type, ttl = None):
         self._cache[hostname] = {
             "ip": ip,
+            'type': type,
             "cache_time": time.time(),
             "ttl": ttl or self.default_ttl,
         }
@@ -43,22 +44,22 @@ class DNSCache(object):
         ip =  self._cache.get(hostname)
         if ip:
             if ip["cache_time"] + ip["ttl"] >= time.time():
-                return ip["ip"]
-            self._cache.pop(hostname)
-        return None
+                return ip["ip"], ip["type"]
+            del self._cache[hostname]
+        return None, None
 
     def remove(self, hostname):
         if hostname in self._cache:
             self._cache.pop(hostname)
 
-    def __setitem__(self, hostname, value):
-        self.set(hostname, value)
+    def __setitem__(self, hostname, ip):
+        return self.set(hostname, ip, QTYPE_A)
 
     def __getitem__(self, hostname):
-        self.get(hostname)
+        return self.get(hostname)[0]
 
     def __delitem__(self, hostname):
-        self.remove(hostname)
+        return self.remove(hostname)
 
     def __contains__(self, hostname):
         return bool(self.get(hostname))
@@ -163,7 +164,7 @@ class DNSResolver(EventEmitter):
         response = self.parse_response(data)
         if response and response.hostname:
             hostname = response.hostname
-            ip, qtype = None, None
+            qtype, ip, type = None, None, None
 
             for question in response.questions:
                 if question[1] in (QTYPE_A, QTYPE_AAAA) and question[2] == QCLASS_IN:
@@ -172,14 +173,15 @@ class DNSResolver(EventEmitter):
 
             for answer in response.answers:
                 if answer[1] in (QTYPE_A, QTYPE_AAAA) and answer[2] == QCLASS_IN:
-                    ip = answer[0]
+                    ip, type = answer[0], answer[1]
                     break
 
             if not ip and qtype == QTYPE_AAAA:
                 self.send_req(hostname)
             elif ip:
-                if not self._cache[hostname]:
-                    self._cache.set(hostname, ip)
+                cip, ctype = self._cache.get(hostname)
+                if cip and ctype == QTYPE_AAAA:
+                    self._cache.set(hostname, ip, type)
                     self.call_callback(hostname, ip)
 
     def send_req(self, hostname, qtype=None):
@@ -219,12 +221,25 @@ class DNSResolver(EventEmitter):
             if not self.is_valid_hostname(hostname):
                 callback(hostname, None)
             else:
+                is_finish = False
                 callbacks = self._queue[hostname]
+
+                def on_callback(hostname, ip):
+                    global is_finish
+                    if not is_finish:
+                        is_finish = True
+                        callback(hostname, ip)
+
+                def on_timeout():
+                    if not is_finish:
+                        on_callback(hostname, None)
+                        callbacks.remove(on_callback)
+
                 if not callbacks:
                     self.send_req(hostname)
-                callbacks.append(callback)
+                callbacks.append(on_callback)
                 if timeout > 0:
-                    self._loop.timeout(timeout, lambda : self.call_callback(hostname, None))
+                    self._loop.timeout(timeout, on_timeout)
 
     def on_close(self, socket):
         if self._status == STATUS_CLOSED:
