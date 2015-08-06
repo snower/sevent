@@ -7,7 +7,7 @@ import errno
 import event
 from loop import instance, MODE_IN, MODE_OUT
 from buffer import Buffer
-
+from dns import DNSResolver
 
 STATE_INITIALIZED = 0x01
 STATE_CONNECTING = 0x02
@@ -19,11 +19,12 @@ STATE_CLOSED = 0x20
 RECV_BUFSIZE = 0xffff
 
 class Socket(event.EventEmitter):
-    def __init__(self, loop=None, socket=None, address=None):
+    def __init__(self, loop=None, socket=None, address=None, dns_resolver = None):
         super(Socket, self).__init__()
         self._loop =loop or instance()
         self._socket = socket
         self._address = address
+        self._dns_resolver = dns_resolver or DNSResolver.default()
         self._connect_handler = None
         self._read_handler = None
         self._write_handler = None
@@ -104,23 +105,33 @@ class Socket(event.EventEmitter):
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:
             return
-        try:
-            addrinfo = socket.getaddrinfo(address[0], address[1], 0, 0, socket.SOL_TCP)
-            # support both IPv4 and IPv6 addresses
-            if addrinfo:
-                address = addrinfo[0]
-                self._socket = socket.socket(address[0], address[1], address[2])
-                self._socket.setblocking(False)
-                self._socket.connect(address[4])
-                self._address = address[4]
-            else:
-                self._error(Exception('can not resolve hostname %s',address))
+
+        def do_connect(hostname, ip):
+            if self._state == STATE_CLOSED:
                 return
-        except socket.error as e:
-            if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
-                self._error(e)
-                return
-        self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+
+            if not ip:
+                return self._error(Exception('can not resolve hostname %s',address))
+
+            try:
+                addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
+                # support both IPv4 and IPv6 addresses
+                if addrinfo:
+                    addr = addrinfo[0]
+                    self._socket = socket.socket(addr[0], addr[1], addr[2])
+                    self._socket.setblocking(False)
+                    self._socket.connect(addr[4])
+                    self._address = addr[4]
+                else:
+                    self._error(Exception('can not resolve hostname %s',address))
+                    return
+            except socket.error as e:
+                if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
+                    self._error(e)
+                    return
+            self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+
+        self._dns_resolver.resolve(address[0], do_connect)
         self._loop.timeout(timeout,self._timeout_cb)
         self._state = STATE_CONNECTING
 
@@ -193,9 +204,10 @@ class Socket(event.EventEmitter):
 
 
 class Server(event.EventEmitter):
-    def __init__(self, loop=None):
+    def __init__(self, loop=None, dns_resolver = None):
         super(Server, self).__init__()
         self._loop = loop or instance()
+        self._dns_resolver = dns_resolver or DNSResolver.default()
         self._socket = None
         self._state = STATE_INITIALIZED
 
@@ -206,18 +218,24 @@ class Server(event.EventEmitter):
         if self._state != STATE_INITIALIZED:
             return
 
-        addrinfo = socket.getaddrinfo(address[0], address[1], 0, 0, socket.SOL_TCP)
-        if addrinfo:
-            address = addrinfo[0]
-            self._socket = socket.socket(address[0], address[1], address[2])
-            self._socket.setblocking(False)
-            self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self._socket.bind(address[4])
-            self._accept_handler = self._loop.add_fd(self._socket, MODE_IN, self._accept_cb)
-            self._socket.listen(backlog)
-            self._state = STATE_LISTENING
-        else:
-            self._error(Exception('can not resolve hostname %s' % address))
+        def do_listen(hostname, ip):
+            if not ip:
+                return self._error(Exception('can not resolve hostname %s' % address))
+
+            addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
+            if addrinfo:
+                addr = addrinfo[0]
+                self._socket = socket.socket(addr[0], addr[1], addr[2])
+                self._socket.setblocking(False)
+                self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self._socket.bind(addr[4])
+                self._accept_handler = self._loop.add_fd(self._socket, MODE_IN, self._accept_cb)
+                self._socket.listen(backlog)
+            else:
+                self._error(Exception('can not resolve hostname %s' % address))
+
+        self._dns_resolver.resolve(address[0], do_listen)
+        self._state = STATE_LISTENING
 
     def _accept_cb(self):
         if self._state != STATE_LISTENING:

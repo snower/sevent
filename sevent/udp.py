@@ -8,6 +8,7 @@ import errno
 from collections import deque
 from event import EventEmitter
 from loop import instance, MODE_IN, MODE_OUT
+from dns import DNSResolver
 
 STATE_STREAMING = 0x01
 STATE_BINDING = 0x02
@@ -17,9 +18,18 @@ STATE_CLOSED = 0x06
 RECV_BUFSIZE = 0xffff
 
 class Socket(EventEmitter):
-    def __init__(self, loop=None):
+    def __init__(self, loop=None, dns_resolver=None):
         super(Socket, self).__init__()
         self._loop = loop or instance()
+        self._dns_resolver = dns_resolver
+        if self._dns_resolver is None:
+            class DNSResolverProxy(object):
+                def __getattr__(proxy, name):
+                    if isinstance(self._dns_resolver, DNSResolverProxy):
+                        self._dns_resolver = DNSResolver.default()
+                    return getattr(self._dns_resolver, name)
+            self._dns_resolver = DNSResolverProxy()
+
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
         self._socket.setblocking(False)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -27,6 +37,7 @@ class Socket(EventEmitter):
         self._write_handler = None
         self._rbuffers = deque()
         self._wbuffers = deque()
+        self._address_cache = {}
         self._state = STATE_STREAMING
 
     def __del__(self):
@@ -110,22 +121,38 @@ class Socket(EventEmitter):
     def write(self, address, data):
         if self._state not in (STATE_STREAMING, STATE_BINDING):
             return False
-        self._wbuffers.append((address, data))
-        if not self._write() or self._write_handler is None:
-            self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
-            if not self._write_handler:
-                self._error(Exception("write data add fd error"))
-                return False
-            return True
-        self._loop.sync(self.emit,'drain', self)
-        return True
+
+        def do_write(address):
+            self._wbuffers.append((address, data))
+            if not self._write() or self._write_handler is None:
+                self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+                if not self._write_handler:
+                    self._error(Exception("write data add fd error"))
+            else:
+                self._loop.sync(self.emit,'drain', self)
+
+        if address[0] not in self._address_cache:
+            def resolve_callback(hostname, ip):
+                if not ip:
+                    return self._error(Exception('can not resolve hostname %s' % address))
+                self._address_cache[hostname] = ip
+                do_write((ip, address[1]))
+            self._dns_resolver.resolve(address[0], resolve_callback)
+        else:
+            do_write(address)
 
 class Server(Socket):
     def __init__(self, loop=None):
         super(Server, self).__init__(loop)
 
     def bind(self, address):
-        self._socket.bind(address)
+        def do_bind(hostname, ip):
+            if not ip:
+                self.close()
+            else:
+                self._socket.bind((ip, address[1]))
+
+        self._dns_resolver.resolve(address[0], do_bind)
         self._state = STATE_BINDING
 
     def __del__(self):

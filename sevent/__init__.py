@@ -8,3 +8,4 @@ from event import EventEmitter
 import tcp
 import udp
 from buffer import Buffer
+from dns import DNSResolver
