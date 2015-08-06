@@ -92,6 +92,7 @@ class DNSResolver(EventEmitter):
         self._cache = DNSCache()
         self._queue = defaultdict(list)
         self._hostname_status = {}
+        self._hostname_server_index = {}
         self._socket = None
         self._status = STATUS_OPENED
 
@@ -154,6 +155,9 @@ class DNSResolver(EventEmitter):
 
         self.emit("resolve", self, hostname, ip)
 
+        if hostname in self._hostname_server_index:
+            del self._hostname_server_index[hostname]
+            
         if hostname in self._hostname_status:
             del self._hostname_status[hostname]
 
@@ -164,21 +168,20 @@ class DNSResolver(EventEmitter):
         response = self.parse_response(data)
         if response and response.hostname:
             hostname = response.hostname
-            qtype, ip, type = None, None, None
-
-            for question in response.questions:
-                if question[1] in (QTYPE_A, QTYPE_AAAA) and question[2] == QCLASS_IN:
-                    qtype = question[1]
-                    break
+            ip, type = None, None
 
             for answer in response.answers:
                 if answer[1] in (QTYPE_A, QTYPE_AAAA) and answer[2] == QCLASS_IN:
                     ip, type = answer[0], answer[1]
                     break
 
-            if not ip and qtype == QTYPE_AAAA:
-                self.send_req(hostname)
-            elif ip:
+            if not ip:
+                if self._hostname_status.get(hostname, 0) >= 1:
+                    self.send_req(hostname)
+                    self._hostname_status[hostname] = 0
+                else:
+                    self._hostname_status[hostname] = 1
+            else:
                 cip, ctype = self._cache.get(hostname)
                 if not cip or ctype == QTYPE_AAAA:
                     self._cache.set(hostname, ip, type)
@@ -186,17 +189,15 @@ class DNSResolver(EventEmitter):
 
     def send_req(self, hostname, qtype=None):
         qtype = ([QTYPE_A, QTYPE_AAAA] if qtype is None else [qtype]) if not isinstance(qtype, (list, tuple)) else qtype
-        server_index = self._hostname_status.get(hostname, -1)
+        server_index = self._hostname_server_index.get(hostname, -1)
         if(server_index + 1 >= len(self._servers)):
             self.call_callback(hostname, None)
         else:
             server = self._servers[server_index + 1]
-            logging.debug('resolving %s with type %d using server %s',
-                      hostname, qtype, server)
             for qt in qtype:
                 req = self.build_request(hostname, qt)
                 self._socket.write((server, 53), req)
-            self._hostname_status[hostname] = server_index + 1
+            self._hostname_server_index[hostname] = server_index + 1
 
     def resolve(self, hostname, callback, timeout = 5):
         if self._status == STATUS_CLOSED:
