@@ -62,7 +62,7 @@ class DNSCache(object):
         return self.remove(hostname)
 
     def __contains__(self, hostname):
-        return bool(self.get(hostname))
+        return bool(self.get(hostname)[0])
 
 class DNSResponse(object):
     def __init__(self):
@@ -180,7 +180,7 @@ class DNSResolver(EventEmitter):
                 self.send_req(hostname)
             elif ip:
                 cip, ctype = self._cache.get(hostname)
-                if cip and ctype == QTYPE_AAAA:
+                if not cip or ctype == QTYPE_AAAA:
                     self._cache.set(hostname, ip, type)
                     self.call_callback(hostname, ip)
 
@@ -221,25 +221,15 @@ class DNSResolver(EventEmitter):
             if not self.is_valid_hostname(hostname):
                 callback(hostname, None)
             else:
-                is_finish = False
                 callbacks = self._queue[hostname]
-
-                def on_callback(hostname, ip):
-                    global is_finish
-                    if not is_finish:
-                        is_finish = True
-                        callback(hostname, ip)
-
-                def on_timeout():
-                    if not is_finish:
-                        on_callback(hostname, None)
-                        callbacks.remove(on_callback)
-
                 if not callbacks:
                     self.send_req(hostname)
-                callbacks.append(on_callback)
-                if timeout > 0:
-                    self._loop.timeout(timeout, on_timeout)
+                    if timeout > 0:
+                        def on_timeout():
+                            if hostname not in self._cache:
+                                self.call_callback(hostname, None)
+                        self._loop.timeout(timeout, on_timeout)
+                callbacks.append(callback)
 
     def on_close(self, socket):
         if self._status == STATUS_CLOSED:
