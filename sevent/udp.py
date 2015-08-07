@@ -123,6 +123,9 @@ class Socket(EventEmitter):
             return False
 
         def do_write(address):
+            if self._state not in (STATE_STREAMING, STATE_BINDING):
+                return False
+
             self._wbuffers.append((address, data))
             if not self._write() or self._write_handler is None:
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
@@ -149,7 +152,7 @@ class Server(Socket):
         def do_bind(hostname, ip):
             if not ip:
                 self.close()
-            else:
+            elif self._state == STATE_BINDING:
                 self._socket.bind((ip, address[1]))
 
         self._dns_resolver.resolve(address[0], do_bind)
