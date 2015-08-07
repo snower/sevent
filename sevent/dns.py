@@ -96,8 +96,10 @@ class DNSResolver(EventEmitter):
         self._socket = None
         self._status = STATUS_OPENED
 
-        self.parse_resolv()
-        self.parse_hosts()
+        if not servers:
+            self.parse_resolv()
+        if not hosts:
+            self.parse_hosts()
         self.create_socket()
 
     def create_socket(self):
@@ -175,16 +177,21 @@ class DNSResolver(EventEmitter):
                     ip, type = answer[0], answer[1]
                     break
 
+            hostname_status = self._hostname_status.get(hostname, 0)
             if not ip:
-                if self._hostname_status.get(hostname, 0) >= 1:
+                if hostname_status == 1:
                     self.send_req(hostname)
                     self._hostname_status[hostname] = 0
+                elif hostname_status == 2:
+                    self.call_callback(hostname, self._cache[hostname])
                 else:
                     self._hostname_status[hostname] = 1
             else:
+                self._hostname_status[hostname] = 2
                 cip, ctype = self._cache.get(hostname)
                 if not cip or ctype == QTYPE_AAAA:
                     self._cache.set(hostname, ip, type)
+                if type == QTYPE_A or (hostname_status == 1 and type == QTYPE_AAAA):
                     self.call_callback(hostname, ip)
 
     def send_req(self, hostname, qtype=None):
@@ -212,12 +219,10 @@ class DNSResolver(EventEmitter):
             callback(hostname, hostname)
         elif hostname in self._hosts:
             logging.debug('hit hosts: %s', hostname)
-            ip = self._hosts[hostname]
-            callback(hostname, ip)
+            callback(hostname, self._hosts[hostname])
         elif hostname in self._cache:
             logging.debug('hit cache: %s', hostname)
-            ip = self._cache[hostname]
-            callback(hostname, ip)
+            callback(hostname, self._cache[hostname])
         else:
             if not self.is_valid_hostname(hostname):
                 callback(hostname, None)
@@ -229,6 +234,8 @@ class DNSResolver(EventEmitter):
                         def on_timeout():
                             if hostname not in self._cache:
                                 self.call_callback(hostname, None)
+                            elif self._hostname_status.get(hostname, 0) == 2:
+                                self.call_callback(hostname, self._cache[hostname])
                         self._loop.timeout(timeout, on_timeout)
                 callbacks.append(callback)
 
