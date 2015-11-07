@@ -20,15 +20,13 @@ class Buffer(EventEmitter):
         self._full = False
 
     def join(self):
-        if len(self._buffer) >= self._len:
-            return
-
-        if self._index >= self._len:
-            self._buffer = "".join(self._buffers)
-        else:
-            self._buffer = self._buffer[self._index:] + "".join(self._buffers)
-        self._index= 0
-        self._buffers.clear()
+        if self._buffers:
+            if self._index >= self._len:
+                self._buffer = "".join(self._buffers)
+            else:
+                self._buffer = self._buffer[self._index:] + "".join(self._buffers)
+            self._index = 0
+            self._buffers.clear()
 
     def write(self, data):
         self._buffers.append(data)
@@ -40,7 +38,7 @@ class Buffer(EventEmitter):
     def read(self, size):
         if size < 0:
             self.join()
-            self._len, data, self._buffer = 0, self._buffer, ''
+            self._len, data, self._buffer = 0, self._buffer[self._index:], ''
 
             if self._full and self._len < MAX_BUFFER_SIZE:
                 self._full = False
