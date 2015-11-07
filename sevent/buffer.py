@@ -39,6 +39,7 @@ class Buffer(EventEmitter):
 
     def read(self, size):
         if size < 0:
+            self.join()
             self._len, data, self._buffer = 0, self._buffer, ''
 
             if self._full and self._len < MAX_BUFFER_SIZE:

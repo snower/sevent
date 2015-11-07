@@ -163,7 +163,8 @@ class Socket(event.EventEmitter):
                     break
                 self._rbuffers.write(data)
             except socket.error as e:
-                if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):break
+                if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
+                    break
                 else:
                     self._error(e)
                     return
