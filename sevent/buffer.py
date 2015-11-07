@@ -27,7 +27,8 @@ class Buffer(EventEmitter):
             self._buffer = "".join(self._buffers)
         else:
             self._buffer = self._buffer[self._index:] + "".join(self._buffers)
-        self._index, self._buffers = 0, self._buffers.clear()
+        self._index= 0
+        self._buffers.clear()
 
     def write(self, data):
         self._buffers.append(data)
