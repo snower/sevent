@@ -21,10 +21,9 @@ class Buffer(EventEmitter):
 
     def join(self):
         if self._buffers:
-            if self._index >= self._len:
-                self._buffer = "".join(self._buffers)
-            else:
-                self._buffer = self._buffer[self._index:] + "".join(self._buffers)
+            if self._index < self._len:
+                self._buffers.appendleft(self._buffer[self._index:])
+            self._buffer = "".join(self._buffers)
             self._index = 0
             self._buffers.clear()
 
@@ -38,7 +37,10 @@ class Buffer(EventEmitter):
     def read(self, size):
         if size < 0:
             self.join()
-            self._len, data, self._buffer = 0, self._buffer[self._index:], ''
+            if self._index > 0:
+                self._len, data, self._buffer = 0, self._buffer[self._index:], ''
+            else:
+                self._len, data, self._buffer = 0, self._buffer, ''
 
             if self._full and self._len < MAX_BUFFER_SIZE:
                 self._full = False
