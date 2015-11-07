@@ -69,6 +69,8 @@ class Buffer(EventEmitter):
 
     def __str__(self):
         self.join()
+        if self._index > 0:
+            self._index, self._buffer = 0, self._buffer[self._index:]
         return self._buffer
 
     def __nonzero__(self):
@@ -85,6 +87,8 @@ class Buffer(EventEmitter):
             raise IndexError(index)
         if length > len(self._buffer):
             self.join()
+            if self._index > 0:
+                self._index, self._buffer = 0, self._buffer[self._index:]
         return self._buffer.__getitem__(index)
 
     def __iter__(self):
@@ -94,8 +98,12 @@ class Buffer(EventEmitter):
 
     def __contains__(self, item):
         self.join()
+        if self._index > 0:
+            self._index, self._buffer = 0, self._buffer[self._index:]
         return self._buffer.__contains__(item)
 
     def __hash__(self):
         self.join()
+        if self._index > 0:
+            self._index, self._buffer = 0, self._buffer[self._index:]
         self._buffer.__hash__()
