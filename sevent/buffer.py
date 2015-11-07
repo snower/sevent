@@ -2,6 +2,7 @@
 # 15/1/27
 # create by: snower
 
+from cStringIO import StringIO
 from collections import deque
 from event import EventEmitter
 from loop import current
@@ -13,7 +14,8 @@ class Buffer(EventEmitter):
         super(Buffer, self).__init__()
 
         self._loop = current()
-        self._buffer = ''
+        self._buffer = StringIO('')
+        self._buffer_len = 0
         self._buffers = deque()
         self._len = 0
         self._index = 0
@@ -21,9 +23,11 @@ class Buffer(EventEmitter):
 
     def join(self):
         if self._buffers:
-            if self._index < len(self._buffer):
-                self._buffers.appendleft(self._buffer[self._index:])
-            self._buffer = "".join(self._buffers)
+            if self._index < self._buffer_len:
+                self._buffers.appendleft(self._buffer.read())
+            data = "".join(self._buffers)
+            self._buffer = StringIO(data)
+            self._buffer_len = len(data)
             self._index = 0
             self._buffers.clear()
 
@@ -34,13 +38,10 @@ class Buffer(EventEmitter):
             self._full = True
             self._loop.sync(self.emit, "drain", self)
 
-    def read(self, size):
+    def read(self, size = -1):
         if size < 0:
             self.join()
-            if self._index > 0:
-                self._index, self._len, data, self._buffer = 0, 0, self._buffer[self._index:], ''
-            else:
-                self._len, data, self._buffer = 0, self._buffer, ''
+            self._index, self._len, data, self._buffer, self._buffer_len = 0, 0, self._buffer.read(), StringIO(''), 0
 
             if self._full and self._len < MAX_BUFFER_SIZE:
                 self._full = False
@@ -51,10 +52,10 @@ class Buffer(EventEmitter):
         if self._len < size:
             return None
 
-        if len(self._buffer) - self._index < size:
+        if self._buffer_len - self._index < size:
             self.join()
 
-        data = self._buffer[self._index: self._index + size]
+        data = self._buffer.read(size)
         self._index += size
         self._len -= size
 
@@ -70,8 +71,8 @@ class Buffer(EventEmitter):
     def __str__(self):
         self.join()
         if self._index > 0:
-            self._index, self._buffer = 0, self._buffer[self._index:]
-        return self._buffer
+            return self._buffer.getvalue()[self._index:]
+        return self._buffer.getvalue()
 
     def __nonzero__(self):
         return self._len > 0
@@ -85,11 +86,9 @@ class Buffer(EventEmitter):
             raise KeyError(index)
         if length > self._len:
             raise IndexError(index)
-        if length > len(self._buffer):
+        if length > self._buffer_len:
             self.join()
-            if self._index > 0:
-                self._index, self._buffer = 0, self._buffer[self._index:]
-        return self._buffer.__getitem__(index)
+        return str(self).__getitem__(index)
 
     def __iter__(self):
         for data in str(self):
@@ -98,12 +97,8 @@ class Buffer(EventEmitter):
 
     def __contains__(self, item):
         self.join()
-        if self._index > 0:
-            self._index, self._buffer = 0, self._buffer[self._index:]
-        return self._buffer.__contains__(item)
+        return str(self).__contains__(item)
 
     def __hash__(self):
         self.join()
-        if self._index > 0:
-            self._index, self._buffer = 0, self._buffer[self._index:]
-        self._buffer.__hash__()
+        return str(self).__hash__()
