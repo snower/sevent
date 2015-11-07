@@ -21,7 +21,7 @@ class Buffer(EventEmitter):
 
     def join(self):
         if self._buffers:
-            if self._index < self._len:
+            if self._index < len(self._buffer):
                 self._buffers.appendleft(self._buffer[self._index:])
             self._buffer = "".join(self._buffers)
             self._index = 0
