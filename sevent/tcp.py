@@ -187,6 +187,8 @@ class Socket(event.EventEmitter):
             data = self._wbuffers.popleft()
             if isinstance(data, Buffer):
                 data = data.read(-1)
+            if not data:
+                continue
             try:
                 r = self._socket.send(data)
                 if r < len(data):
