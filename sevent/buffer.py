@@ -3,34 +3,62 @@
 # create by: snower
 
 from collections import deque
+from event import EventEmitter
+from loop import current
 
-class Buffer(object):
+MAX_BUFFER_SIZE = 16 * 1024 * 1024
+
+class Buffer(EventEmitter):
     def __init__(self):
+        super(Buffer, self).__init__()
+
+        self._loop = current()
         self._buffer = ''
         self._buffers = deque()
         self._len = 0
         self._index = 0
+        self._full = False
 
     def join(self):
-        self._buffer = self._buffer[self._index:] + "".join(self._buffers)
-        self._index, self._buffers = 0, deque()
+        if len(self._buffer) >= self._len:
+            return
+
+        if self._index >= self._len:
+            self._buffer = "".join(self._buffers)
+        else:
+            self._buffer = self._buffer[self._index:] + "".join(self._buffers)
+        self._index, self._buffers = 0, self._buffers.clear()
 
     def write(self, data):
         self._buffers.append(data)
         self._len += len(data)
+        if self._len > MAX_BUFFER_SIZE:
+            self._full = True
+            self._loop.sync(self.emit, "drain", self)
 
     def read(self, size):
-        if size < 0 or len(self._buffer) - self._index < size:
+        if size < 0:
+            self._len, data, self._buffer = 0, self._buffer, ''
+
+            if self._full and self._len < MAX_BUFFER_SIZE:
+                self._full = False
+                self._loop.sync(self.emit, "regain", self)
+
+            return data
+
+        if len(self._buffer) - self._index < size:
             self.join()
-            if size < 0:
-                self._index, self._len = 0, 0
-                data, self._buffer = self._buffer, ''
-                return data
             if size > len(self._buffer):
                 return None
+
         data = self._buffer[self._index: self._index + size]
         self._index += size
         self._len -= size
+
+        if self._full and self._len < MAX_BUFFER_SIZE:
+            self._full = False
+            self._loop.sync(self.emit, "regain", self)
+
         return data
 
     def __len__(self):

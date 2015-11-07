@@ -77,6 +77,8 @@ class Socket(event.EventEmitter):
             except Exception,e:
                 logging.error("socket close socket error:%s",e)
 
+        self._rbuffers = None
+        self._wbuffers = None
         self._state = STATE_CLOSED
         def on_close():
             self.emit('close', self)
@@ -96,6 +98,8 @@ class Socket(event.EventEmitter):
 
         self._state = STATE_STREAMING
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+        self._rbuffers.on("drain", lambda _ : self.drain())
+        self._rbuffers.on("regain", lambda _ : self.regain())
         self._loop.sync(self.emit, 'connect', self)
 
     def _timeout_cb(self):
@@ -132,8 +136,19 @@ class Socket(event.EventEmitter):
             self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
 
         self._dns_resolver.resolve(address[0], do_connect)
-        self._loop.timeout(timeout,self._timeout_cb)
+        self._loop.timeout(timeout, self._timeout_cb)
         self._state = STATE_CONNECTING
+
+    def drain(self):
+        if self._state in (STATE_STREAMING, STATE_CLOSING):
+            if self._read_handler:
+                self._loop.remove_handler(self._read_handler)
+                self._read_handler = None
+
+    def regain(self):
+        if self._state in (STATE_STREAMING, STATE_CLOSING):
+            if self._read_handler is None:
+                self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
 
     def _read_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
@@ -153,22 +168,24 @@ class Socket(event.EventEmitter):
                     self._error(e)
                     return
 
-        if self._rbuffers and ("data" in self._events or "data" in self._events_once):
-            self._loop.sync(self.emit,'data', self, self._rbuffers)
+        if self._rbuffers:
+            self._loop.sync(self.emit, 'data', self, self._rbuffers)
 
         if not data:
-            self._loop.sync(self.emit,'end', self)
+            self._loop.sync(self.emit, 'end', self)
             if self._state in (STATE_STREAMING, STATE_CLOSING):
                 self.close()
 
     def _write_cb(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):return
         if self._write():
-            self._loop.sync(self.emit,'drain', self)
+            self._loop.sync(self.emit, 'drain', self)
 
     def _write(self):
         while self._state in (STATE_STREAMING, STATE_CLOSING) and self._wbuffers:
             data = self._wbuffers.popleft()
+            if isinstance(data, Buffer):
+                data = data.read(-1)
             try:
                 r = self._socket.send(data)
                 if r < len(data):
@@ -189,9 +206,10 @@ class Socket(event.EventEmitter):
         return True
 
     def write(self, data):
-        if self._state !=STATE_STREAMING:
+        if self._state != STATE_STREAMING:
             return False
-        self._wbuffers.append(data.read(-1) if isinstance(data, Buffer) else data)
+        if isinstance(data, Buffer) and self._wbuffers and self._wbuffers[-1] == data:
+            return False
         if not self._write():
             if not self._write_handler:
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
