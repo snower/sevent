@@ -210,6 +210,7 @@ class Socket(event.EventEmitter):
             return False
         if isinstance(data, Buffer) and self._wbuffers and self._wbuffers[-1] == data:
             return False
+        self._wbuffers.append(data)
         if not self._write():
             if not self._write_handler:
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
