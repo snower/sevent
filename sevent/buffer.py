@@ -38,7 +38,7 @@ class Buffer(EventEmitter):
         if size < 0:
             self.join()
             if self._index > 0:
-                self._len, data, self._buffer = 0, self._buffer[self._index:], ''
+                self._index, self._len, data, self._buffer = 0, 0, self._buffer[self._index:], ''
             else:
                 self._len, data, self._buffer = 0, self._buffer, ''
 
@@ -48,10 +48,11 @@ class Buffer(EventEmitter):
 
             return data
 
+        if self._len < size:
+            return None
+
         if len(self._buffer) - self._index < size:
             self.join()
-            if size > len(self._buffer):
-                return None
 
         data = self._buffer[self._index: self._index + size]
         self._index += size
