@@ -20,6 +20,8 @@ class Buffer(EventEmitter):
         self._len = 0
         self._index = 0
         self._full = False
+        self._drain_size = MAX_BUFFER_SIZE
+        self._regain_size = MAX_BUFFER_SIZE * 0.8
 
     def join(self):
         if self._buffers:
@@ -37,7 +39,7 @@ class Buffer(EventEmitter):
     def write(self, data):
         self._buffers.append(data)
         self._len += len(data)
-        if self._len > MAX_BUFFER_SIZE:
+        if self._len > self._drain_size:
             self._full = True
             self._loop.async(self.emit, "drain", self)
 
@@ -49,7 +51,7 @@ class Buffer(EventEmitter):
             self.join()
             self._index, self._len, data, self._buffer, self._buffer_len = 0, 0, self._buffer.read(), StringIO(''), 0
 
-            if self._full and self._len < MAX_BUFFER_SIZE:
+            if self._full and self._len < self._regain_size:
                 self._full = False
                 self._loop.async(self.emit, "regain", self)
 
@@ -65,7 +67,7 @@ class Buffer(EventEmitter):
         self._index += size
         self._len -= size
 
-        if self._full and self._len < MAX_BUFFER_SIZE:
+        if self._full and self._len < self._regain_size:
             self._full = False
             self._loop.async(self.emit, "regain", self)
 
