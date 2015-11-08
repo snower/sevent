@@ -163,36 +163,42 @@ class DNSResolver(EventEmitter):
         if hostname in self._hostname_status:
             del self._hostname_status[hostname]
 
-    def on_data(self, socket, address, data):
-        if address[0] not in self._servers:
-            return
+    def on_data(self, socket, address, buffer):
+        def do(data):
+            if address[0] not in self._servers:
+                return
 
-        response = self.parse_response(data)
-        if response and response.hostname:
-            hostname = response.hostname
-            ip, type = None, None
+            response = self.parse_response(data)
+            if response and response.hostname:
+                hostname = response.hostname
+                ip, type = None, None
 
-            for answer in response.answers:
-                if answer[1] in (QTYPE_A, QTYPE_AAAA) and answer[2] == QCLASS_IN:
-                    ip, type = answer[0], answer[1]
-                    break
+                for answer in response.answers:
+                    if answer[1] in (QTYPE_A, QTYPE_AAAA) and answer[2] == QCLASS_IN:
+                        ip, type = answer[0], answer[1]
+                        break
 
-            hostname_status = self._hostname_status.get(hostname, 0)
-            if not ip:
-                if hostname_status == 1:
-                    self.send_req(hostname)
-                    self._hostname_status[hostname] = 0
-                elif hostname_status == 2:
-                    self.call_callback(hostname, self._cache[hostname])
+                hostname_status = self._hostname_status.get(hostname, 0)
+                if not ip:
+                    if hostname_status == 1:
+                        self.send_req(hostname)
+                        self._hostname_status[hostname] = 0
+                    elif hostname_status == 2:
+                        self.call_callback(hostname, self._cache[hostname])
+                    else:
+                        self._hostname_status[hostname] = 1
                 else:
-                    self._hostname_status[hostname] = 1
-            else:
-                self._hostname_status[hostname] = 2
-                cip, ctype = self._cache.get(hostname)
-                if not cip or ctype == QTYPE_AAAA:
-                    self._cache.set(hostname, ip, type)
-                if type == QTYPE_A or (hostname_status == 1 and type == QTYPE_AAAA):
-                    self.call_callback(hostname, ip)
+                    self._hostname_status[hostname] = 2
+                    cip, ctype = self._cache.get(hostname)
+                    if not cip or ctype == QTYPE_AAAA:
+                        self._cache.set(hostname, ip, type)
+                    if type == QTYPE_A or (hostname_status == 1 and type == QTYPE_AAAA):
+                        self.call_callback(hostname, ip)
+
+            data = buffer.next()
+            while data:
+                do(data)
+                data = buffer.next()
 
     def send_req(self, hostname, qtype=None):
         qtype = ([QTYPE_A, QTYPE_AAAA] if qtype is None else [qtype]) if not isinstance(qtype, (list, tuple)) else qtype

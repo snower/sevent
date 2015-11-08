@@ -36,7 +36,7 @@ class Buffer(EventEmitter):
         self._len += len(data)
         if self._len > MAX_BUFFER_SIZE:
             self._full = True
-            self._loop.sync(self.emit, "drain", self)
+            self._loop.async(self.emit, "drain", self)
 
     def read(self, size = -1):
         if size < 0:
@@ -45,7 +45,7 @@ class Buffer(EventEmitter):
 
             if self._full and self._len < MAX_BUFFER_SIZE:
                 self._full = False
-                self._loop.sync(self.emit, "regain", self)
+                self._loop.async(self.emit, "regain", self)
 
             return data
 
@@ -61,44 +61,46 @@ class Buffer(EventEmitter):
 
         if self._full and self._len < MAX_BUFFER_SIZE:
             self._full = False
-            self._loop.sync(self.emit, "regain", self)
+            self._loop.async(self.emit, "regain", self)
 
+        return data
+
+    def next(self):
+        if self._buffer_len > 0:
+            data = self._buffer.read()
+            self._buffer_len, self._index = 0, 0
+            return data
+        if not self._buffers:
+            return None
+        data = self._buffers.popleft()
+        self._len -= len(data)
         return data
 
     def __len__(self):
         return self._len
 
     def __str__(self):
-        self.join()
         if self._index > 0:
-            return self._buffer.getvalue()[self._index:]
-        return self._buffer.getvalue()
+            return self._buffer.getvalue()[self._index:] + "".join(self._buffers)
+        return "".join(self._buffers)
 
     def __nonzero__(self):
         return self._len > 0
 
     def __getitem__(self, index):
-        if isinstance(index, int):
-            length = index + 1
-        elif isinstance(index, slice):
-            length = index.stop + 1
-        else:
-            raise KeyError(index)
-        if length > self._len:
-            raise IndexError(index)
-        if length > self._buffer_len:
-            self.join()
-        return str(self).__getitem__(index)
+        if index == 0:
+            return self._buffer.getvalue()[self._index:]
+        return self._buffers[index - 1]
 
     def __iter__(self):
-        for data in str(self):
+        data = self.next()
+        while data:
             yield data
+            data = self.next()
         raise StopIteration()
 
     def __contains__(self, item):
-        self.join()
         return str(self).__contains__(item)
 
     def __hash__(self):
-        self.join()
         return str(self).__hash__()

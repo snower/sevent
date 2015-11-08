@@ -77,16 +77,16 @@ class Socket(event.EventEmitter):
             except Exception,e:
                 logging.error("socket close socket error:%s",e)
 
-        self._rbuffers = None
-        self._wbuffers = None
         self._state = STATE_CLOSED
         def on_close():
             self.emit('close', self)
             self.remove_all_listeners()
-        self._loop.sync(on_close)
+            self._rbuffers = None
+            self._wbuffers = None
+        self._loop.async(on_close)
 
     def _error(self, error):
-        self._loop.sync(self.emit,'error', self, error)
+        self._loop.async(self.emit,'error', self, error)
         self.close()
         logging.error("socket error:%s",error)
 
@@ -100,7 +100,7 @@ class Socket(event.EventEmitter):
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
         self._rbuffers.on("drain", lambda _ : self.drain())
         self._rbuffers.on("regain", lambda _ : self.regain())
-        self._loop.sync(self.emit, 'connect', self)
+        self._loop.async(self.emit, 'connect', self)
 
     def _timeout_cb(self):
         if self._state == STATE_CONNECTING:
@@ -170,17 +170,17 @@ class Socket(event.EventEmitter):
                     return
 
         if self._rbuffers:
-            self._loop.sync(self.emit, 'data', self, self._rbuffers)
+            self._loop.async(self.emit, 'data', self, self._rbuffers)
 
         if not data:
-            self._loop.sync(self.emit, 'end', self)
+            self._loop.async(self.emit, 'end', self)
             if self._state in (STATE_STREAMING, STATE_CLOSING):
                 self.close()
 
     def _write_cb(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):return
         if self._write():
-            self._loop.sync(self.emit, 'drain', self)
+            self._loop.async(self.emit, 'drain', self)
 
     def _write(self):
         while self._state in (STATE_STREAMING, STATE_CLOSING) and self._wbuffers:
@@ -221,7 +221,7 @@ class Socket(event.EventEmitter):
                     self._error(Exception("write data add fd error"))
                     return False
             return True
-        self._loop.sync(self.emit,'drain', self)
+        self._loop.async(self.emit,'drain', self)
         return True
 
 
@@ -265,10 +265,10 @@ class Server(event.EventEmitter):
 
         connection, address = self._socket.accept()
         socket = Socket(loop=self._loop, socket=connection, address=address)
-        self._loop.sync(self.emit, "connection", self, socket)
+        self._loop.async(self.emit, "connection", self, socket)
 
     def _error(self, error):
-        self._loop.sync(self.emit,'error', self, error)
+        self._loop.async(self.emit,'error', self, error)
         self.close()
         logging.error("server error:%s",error)
 
@@ -286,4 +286,4 @@ class Server(event.EventEmitter):
             def on_close():
                 self.emit('close', self)
                 self.remove_all_listeners()
-            self._loop.sync(on_close)
+            self._loop.async(on_close)

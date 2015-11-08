@@ -14,5 +14,5 @@ def start():
     socket.write(("127.0.0.1", 20000), "dsfsdfsfs")
     socket.on("data", on_data)
 
-loop.sync(start)
+loop.async(start)
 loop.start()

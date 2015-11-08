@@ -143,13 +143,13 @@ class SSLoop(object):
     def stop(self):
         self._stopped = True
 
-    def sync(self, callback,*args,**kwargs):
-        handler = Handler(callback,args=args,kwargs=kwargs)
+    def async(self, callback, *args, **kwargs):
+        handler = Handler(callback, args=args, kwargs=kwargs)
         self._handlers.append(handler)
         return handler
 
-    def timeout(self, timeout, callback,*args,**kwargs):
-        handler = Handler(callback, deadline=self.time() + timeout,args=args,kwargs=kwargs)
+    def timeout(self, timeout, callback, *args, **kwargs):
+        handler = Handler(callback, deadline=self.time() + timeout, args=args, kwargs=kwargs)
         bisect.insort(self._timeout_handlers, handler)
         return handler
 
