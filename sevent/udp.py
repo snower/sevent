@@ -117,6 +117,10 @@ class Socket(EventEmitter):
     def _write(self):
         while self._wbuffers:
             address, data = self._wbuffers.popleft()
+            if isinstance(data, Buffer):
+                data = data.read(-1)
+            if not data:
+                continue
             try:
                 r = self._socket.sendto(data, address)
                 if r < len(data):
@@ -139,6 +143,9 @@ class Socket(EventEmitter):
 
     def write(self, address, data):
         if self._state not in (STATE_STREAMING, STATE_BINDING):
+            return False
+
+        if isinstance(data, Buffer) and self._wbuffers and self._wbuffers[-1][0] == address and self._wbuffers[-1][1] == data:
             return False
 
         def do_write(address):
