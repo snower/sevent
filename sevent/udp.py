@@ -118,20 +118,21 @@ class Socket(EventEmitter):
         while self._wbuffers:
             address, data = self._wbuffers.popleft()
             if isinstance(data, Buffer):
-                data = data.read(-1)
-            if not data:
-                continue
-            try:
-                r = self._socket.sendto(data, address)
-                if r < len(data):
-                    self._wbuffers.appendleft((address, data[r:]))
+                data = data.next()
+            while data:
+                try:
+                    r = self._socket.sendto(data, address)
+                    if r < len(data):
+                        self._wbuffers.appendleft((address, data[r:]))
+                        return False
+                except socket.error as e:
+                    if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
+                        self._wbuffers.appendleft((address, data))
+                    else:
+                        self._error(e)
                     return False
-            except socket.error as e:
-                if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                    self._wbuffers.appendleft((address, data))
-                else:
-                    self._error(e)
-                return False
+
+                data = data.next() if isinstance(data, Buffer) else None
 
         if self._write_handler:
             self._loop.remove_handler(self._write_handler)
