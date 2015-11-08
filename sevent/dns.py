@@ -85,9 +85,9 @@ class DNSResolver(EventEmitter):
     def __init__(self, loop=None, servers=None, hosts=None):
         super(DNSResolver, self).__init__()
 
-        self._loop = None or instance()
-        self._servers = set([])
-        self._hosts = {}
+        self._loop = loop or instance()
+        self._servers = servers or []
+        self._hosts = hosts or {}
 
         self._cache = DNSCache()
         self._queue = defaultdict(list)
@@ -195,10 +195,10 @@ class DNSResolver(EventEmitter):
                     if type == QTYPE_A or (hostname_status == 1 and type == QTYPE_AAAA):
                         self.call_callback(hostname, ip)
 
+        data = buffer.next()
+        while data:
+            do(data)
             data = buffer.next()
-            while data:
-                do(data)
-                data = buffer.next()
 
     def send_req(self, hostname, qtype=None):
         qtype = ([QTYPE_A, QTYPE_AAAA] if qtype is None else [qtype]) if not isinstance(qtype, (list, tuple)) else qtype
@@ -287,9 +287,12 @@ class DNSResolver(EventEmitter):
 
     def parse_ip(self, addrtype, data, length, offset):
         if addrtype == QTYPE_A:
-            return socket.inet_ntop(socket.AF_INET, data[offset:offset + length])
+            return socket.inet_ntoa(data[offset:offset + length])
         elif addrtype == QTYPE_AAAA:
-            return socket.inet_ntop(socket.AF_INET6, data[offset:offset + length])
+            if hasattr(socket, "inet_ntop"):
+                return socket.inet_ntop(socket.AF_INET6, data[offset:offset + length])
+            else:
+                return ""
         elif addrtype in [QTYPE_CNAME, QTYPE_NS]:
             return self.parse_name(data, offset)[1]
         else:
@@ -388,6 +391,7 @@ class DNSResolver(EventEmitter):
                     response.answers.append((an[1], an[2], an[3]))
                 return response
         except Exception as e:
+            logging.exception("parse dns rsponse error:%s", e)
             return None
 
     def is_valid_hostname(self, hostname):
