@@ -16,7 +16,7 @@ STATE_LISTENING = 0x08
 STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
 
-RECV_BUFSIZE = 0xffff
+RECV_BUFSIZE = 4096
 
 class Socket(event.EventEmitter):
     def __init__(self, loop=None, socket=None, address=None, dns_resolver = None):
