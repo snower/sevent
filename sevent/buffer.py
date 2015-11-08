@@ -25,11 +25,14 @@ class Buffer(EventEmitter):
         if self._buffers:
             if self._index < self._buffer_len:
                 self._buffers.appendleft(self._buffer.read())
-            data = "".join(self._buffers)
+            if len(self._buffers) > 1:
+                data = "".join(self._buffers)
+                self._buffers.clear()
+            else:
+                data = self._buffers.popleft()
             self._buffer = StringIO(data)
             self._buffer_len = len(data)
             self._index = 0
-            self._buffers.clear()
 
     def write(self, data):
         self._buffers.append(data)
