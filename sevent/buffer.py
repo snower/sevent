@@ -39,6 +39,9 @@ class Buffer(EventEmitter):
             self._loop.async(self.emit, "drain", self)
 
     def read(self, size = -1):
+        if self._len <= 0:
+            return None
+            
         if size < 0:
             self.join()
             self._index, self._len, data, self._buffer, self._buffer_len = 0, 0, self._buffer.read(), StringIO(''), 0
@@ -66,12 +69,14 @@ class Buffer(EventEmitter):
         return data
 
     def next(self):
+        if self._len <= 0:
+            return None
+            
         if self._buffer_len > 0:
             data = self._buffer.read()
             self._buffer_len, self._index = 0, 0
             return data
-        if not self._buffers:
-            return None
+
         data = self._buffers.popleft()
         self._len -= len(data)
         return data
