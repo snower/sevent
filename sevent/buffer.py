@@ -21,7 +21,7 @@ class Buffer(EventEmitter):
         self._index = 0
         self._full = False
         self._drain_size = MAX_BUFFER_SIZE
-        self._regain_size = MAX_BUFFER_SIZE * 0.8
+        self._regain_size = MAX_BUFFER_SIZE * 0.6
 
     def join(self):
         if self._buffers:
