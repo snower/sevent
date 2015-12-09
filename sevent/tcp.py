@@ -25,9 +25,9 @@ class Socket(event.EventEmitter):
         self._socket = socket
         self._address = address
         self._dns_resolver = dns_resolver or DNSResolver.default()
-        self._connect_handler = None
-        self._read_handler = None
-        self._write_handler = None
+        self._connect_handler = False
+        self._read_handler = False
+        self._write_handler = True
         self._rbuffers = Buffer()
         self._wbuffers = deque()
         self._state = STATE_INITIALIZED
@@ -63,15 +63,15 @@ class Socket(event.EventEmitter):
             return
 
         if self._state == STATE_CONNECTING and self._connect_handler:
-            self._loop.remove_handler(self._connect_handler)
-            self._connect_handler = None
+            self._loop.remove_fd(self._socket, self._connect_cb)
+            self._connect_handler = False
         elif self._state in (STATE_STREAMING, STATE_CLOSING):
             if self._read_handler:
-                self._loop.remove_handler(self._read_handler)
-                self._read_handler = None
+                self._loop.remove_fd(self._socket, self._read_cb)
+                self._read_handler = False
             if self._write_handler:
-                self._loop.remove_handler(self._write_handler)
-                self._write_handler = None
+                self._loop.remove_fd(self._socket, self._write_cb)
+                self._write_handler = False
             try:
                 self._socket.close()
             except Exception,e:
@@ -93,8 +93,8 @@ class Socket(event.EventEmitter):
     def _connect_cb(self):
         if self._state != STATE_CONNECTING:
             return
-        self._loop.remove_handler(self._connect_handler)
-        self._connect_handler = None
+        self._loop.remove_fd(self._socket, self._connect_cb)
+        self._connect_handler = False
 
         self._state = STATE_STREAMING
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
@@ -142,12 +142,12 @@ class Socket(event.EventEmitter):
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
             if self._read_handler:
-                self._loop.remove_handler(self._read_handler)
-                self._read_handler = None
+                self._loop.remove_fd(self._socket, self._read_cb)
+                self._read_handler = False
 
     def regain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
-            if self._read_handler is None:
+            if not self._read_handler:
                 self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
 
     def _read_cb(self):
@@ -202,8 +202,8 @@ class Socket(event.EventEmitter):
                 return False
 
         if self._write_handler:
-            self._loop.remove_handler(self._write_handler)
-            self._write_handler = None
+            self._loop.remove_fd(self._socket, self._write_cb)
+            self._write_handler = False
         if self._state == STATE_CLOSING:
             self.close()
         return True
@@ -275,8 +275,8 @@ class Server(event.EventEmitter):
     def close(self):
         if self._state in (STATE_INITIALIZED, STATE_LISTENING):
             if self._accept_handler:
-                self._loop.remove_handler(self._accept_handler)
-                self._accept_handler=None
+                self._loop.remove_fd(self._socket, self._accept_cb)
+                self._accept_handler = False
             if self._socket is not None:
                 try:
                     self._socket.close()

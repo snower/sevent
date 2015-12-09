@@ -55,9 +55,11 @@ class Socket(EventEmitter):
         if self._state == STATE_CLOSED:
             return
         if self._read_handler:
-            self._loop.remove_handler(self._read_handler)
+            self._loop.remove_fd(self._socket, self._read_cb)
+            self._read_handler = False
         if self._write_handler:
-            self._loop.remove_handler(self._write_handler)
+            self._loop.remove_fd(self._socket, self._write_cb)
+            self._write_handler = False
         self._socket.close()
         self._state = STATE_CLOSED
         def on_close():
@@ -76,12 +78,12 @@ class Socket(EventEmitter):
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             if self._read_handler:
-                self._loop.remove_handler(self._read_handler)
-                self._read_handler = None
+                self._loop.remove_fd(self._socket, self._read_cb)
+                self._read_handler = False
 
     def regain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
-            if self._read_handler is None:
+            if not self._read_handler:
                 self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
 
     def _read_cb(self):
@@ -135,8 +137,8 @@ class Socket(EventEmitter):
                 data = data.next() if isinstance(data, Buffer) else None
 
         if self._write_handler:
-            self._loop.remove_handler(self._write_handler)
-            self._write_handler = None
+            self._loop.remove_fd(self._socket, self._write_cb)
+            self._write_handler = False
 
         if self._state == STATE_CLOSING:
             self.close()
@@ -155,7 +157,7 @@ class Socket(EventEmitter):
 
             self._wbuffers.append((address, data))
             if not self._write():
-                if self._write_handler is None:
+                if not self._write_handler:
                     self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
                     if not self._write_handler:
                         self._error(Exception("write data add fd error"))

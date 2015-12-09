@@ -4,7 +4,7 @@ import select
 import time
 import bisect
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 
 ''' You can only use instance(). Don't create a Loop() '''
 
@@ -51,39 +51,30 @@ MODE_HUP = 0x10
 MODE_NVAL = 0x20
 
 
-class Handler(object):
-    def __init__(self, callback, fd=None, mode=None, deadline=None, error=None,args=(),kwargs={}):
+class TimeoutHandler(object):
+    def __init__(self, callback, deadline, args, kwargs):
         '''deadline here is absolute timestamp'''
         self.callback = callback
-        self.fd = fd
-        self.mode = mode
         self.deadline = deadline
-        self.error = error  # a message describing the error
         self.args=args
         self.kwargs=kwargs
 
     def __cmp__(self, other):
-        if self.deadline and other.deadline:
-            return cmp(self.deadline,other.deadline)
-        return cmp(id(self),id(other))
+        return cmp(self.deadline, other.deadline)
 
     def __call__(self):
-        self.callback(*self.args,**self.kwargs)
+        self.callback(*self.args, **self.kwargs)
 
 
 class SSLoop(object):
     def __init__(self):
-        self._handlers = []
+        self._handlers = deque()
+        self._run_handlers = deque()
         self._timeout_handlers = []
         self._fd_handlers = defaultdict(list)
         self._stopped = False
-        self._on_error = None
-
-    def time(self):
-        return time.time()
 
     def _poll(self, timeout):
-        '''timeout here is timespan, -1 means forever'''
         raise NotImplementedError()
 
     def _add_fd(self, fd, mode):
@@ -95,94 +86,115 @@ class SSLoop(object):
     def _modify_fd(self, fd, mode):
         raise NotImplementedError()
 
-    def _call_handler(self, handler):
-        try:
-            handler()
-        except Exception,e:
-            if self._on_error is not None and callable(self._on_error):
-                self._on_error(e)
-            logging.exception("loop callback error:%s",e)
-
-    def _get_fd_mode(self, fd):
-        mode = MODE_NULL
+    def add_fd(self, fd, mode, callback):
+        if not isinstance(fd, (int, long)):
+            try:
+                fd = fd.fileno()
+            except:
+                return False
         handlers = self._fd_handlers[fd]
-        if not handlers:return None
-        for handler in handlers:
-            mode |= handler.mode
-        return mode
+        handlers.append((callback, fd, mode))
+        if len(handlers) == 1:
+            self._add_fd(fd, mode)
+        else:
+            new_mode = MODE_NULL
+            for hcallback, hfd, hmode in handlers:
+                new_mode |= hmode
+            self._modify_fd(fd, new_mode)
+        return True
 
-    def _update_fd(self, fd):
-        mode = self._get_fd_mode(fd)
-        if mode is not None:self._modify_fd(fd, mode)
+    def update_fd(self, fd, mode, callback):
+        if not isinstance(fd, (int, long)):
+            try:
+                fd = fd.fileno()
+            except:
+                return False
+
+        handlers = self._fd_handlers[fd]
+        if not handlers:
+            return False
+        new_handlers = []
+        new_mode = MODE_NULL
+        for hcallback, hfd, hmode in handlers:
+            if hcallback == callback:
+                new_mode |= mode
+                new_handlers.append((hcallback, hfd, mode))
+            else:
+                new_mode |= hmode
+                new_handlers.append((hcallback, hfd, hmode))
+        self._modify_fd(fd, new_mode)
+        self._fd_handlers[fd] = new_handlers
+        return True
+
+    def remove_fd(self, fd, callback):
+        if not isinstance(fd, (int, long)):
+            try:
+                fd = fd.fileno()
+            except:
+                return False
+
+        handlers = self._fd_handlers[fd]
+        if not handlers:
+            return False
+        if len(handlers) == 1:
+            if handlers[0][0] == callback:
+                self._remove_fd(fd)
+                del self._fd_handlers[fd]
+        else:
+            new_handlers = []
+            new_mode = MODE_NULL
+            for hcallback, hfd, hmode in handlers:
+                if hcallback != callback:
+                    new_mode |= hmode
+                    new_handlers.append((hcallback, hfd, hmode))
+            self._modify_fd(fd, new_mode)
+            self._fd_handlers[fd] = new_handlers
+        return True
 
     def start(self):
         while not self._stopped:
-            cur_time = self.time()
-            while len(self._timeout_handlers) > 0:
+            cur_time = time.time()
+            while self._timeout_handlers:
                 handler = self._timeout_handlers[0]
                 if handler.deadline <= cur_time:
                     self._timeout_handlers.pop(0)
-                    self._call_handler(handler)
+                    try:
+                        handler()
+                    except Exception, e:
+                        logging.exception("loop callback error:%s", e)
                 else:
                     break
 
-            timeout = 0 if self._handlers else (self._timeout_handlers[0].deadline - self.time() if len(self._timeout_handlers) else 0.5)
+            timeout = 0 if self._handlers else (self._timeout_handlers[0].deadline - time.time() if self._timeout_handlers else 0.5)
             fds_ready = self._poll(timeout)
             for fd, mode in fds_ready:
                 handlers = self._fd_handlers[fd]
-                for handler in handlers:
-                    if handler.mode & mode != 0:
-                        self._call_handler(handler)
+                for hcallback, hfd, hmode in handlers:
+                    if hmode & mode != 0:
+                        try:
+                            hcallback()
+                        except Exception, e:
+                            logging.exception("loop callback error:%s", e)
 
             # call handlers without fd
-            handlers = self._handlers
-            self._handlers = []
-            for handler in handlers:
-                self._call_handler(handler)
+            self._handlers, self._run_handlers = self._run_handlers, self._handlers
+            while self._run_handlers:
+                callback, args, kwargs = self._run_handlers.popleft()
+                try:
+                    callback(*args, **kwargs)
+                except Exception, e:
+                    logging.exception("loop callback error:%s", e)
 
     def stop(self):
         self._stopped = True
 
     def async(self, callback, *args, **kwargs):
-        handler = Handler(callback, args=args, kwargs=kwargs)
-        self._handlers.append(handler)
-        return handler
+        self._handlers.append((callback, args, kwargs))
 
     def timeout(self, timeout, callback, *args, **kwargs):
-        handler = Handler(callback, deadline=self.time() + timeout, args=args, kwargs=kwargs)
+        handler = TimeoutHandler(callback, time.time() + timeout, args, kwargs)
         bisect.insort(self._timeout_handlers, handler)
         return handler
 
-    def add_fd(self, fd, mode, callback):
-        if not (isinstance(fd, int) or isinstance(fd, long)):
-            try:
-                fd = fd.fileno()
-            except:
-                return False
-        handler = Handler(callback, fd=fd, mode=mode)
-        handlers = self._fd_handlers[fd]
-        handlers.append(handler)
-        if len(handlers) == 1:
-            self._add_fd(fd, mode)
-        else:
-            self._update_fd(fd)
-        return handler
-
-    def update_handler_mode(self, handler, mode):
-        handler.mode = mode
-        self._update_fd(handler.fd)
-
-    def remove_handler(self, handler):
-        if handler.deadline:
-            self._timeout_handlers.remove(handler)
-        elif handler.fd:
-            fd = handler.fd
-            handlers = self._fd_handlers[fd]
-            handlers.remove(handler)
-            if not handlers:
-                self._remove_fd(fd)
-                del self._fd_handlers[fd]
-            else:
-                self._update_fd(fd)
-        else:
-            self._handlers.remove(handler)
+    def cancel_timeout(self, handler):
+        self._timeout_handlers.remove(handler)
