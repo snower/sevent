@@ -160,7 +160,12 @@ class Socket(event.EventEmitter):
             try:
                 data = self._socket.recv(RECV_BUFSIZE)
                 if not data:
-                    break
+                    if self._rbuffers:
+                        self._loop.async(self.emit, 'data', self, self._rbuffers)
+                    self._loop.async(self.emit, 'end', self)
+                    if self._state in (STATE_STREAMING, STATE_CLOSING):
+                        self.close()
+                    return
                 self._rbuffers.write(data)
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
@@ -169,16 +174,12 @@ class Socket(event.EventEmitter):
                     self._error(e)
                     return
 
-        if self._rbuffers:
-            self._loop.async(self.emit, 'data', self, self._rbuffers)
-
-        if not data:
-            self._loop.async(self.emit, 'end', self)
-            if self._state in (STATE_STREAMING, STATE_CLOSING):
-                self.close()
+            if data:
+                self._loop.async(self.emit, 'data', self, self._rbuffers)
 
     def _write_cb(self):
-        if self._state not in (STATE_STREAMING, STATE_CLOSING):return
+        if self._state not in (STATE_STREAMING, STATE_CLOSING):
+            return
         if self._write():
             self._loop.async(self.emit, 'drain', self)
 
@@ -187,8 +188,8 @@ class Socket(event.EventEmitter):
             data = self._wbuffers.popleft()
             if isinstance(data, Buffer):
                 data = data.read(-1)
-            if not data:
-                continue
+                if not data:
+                    continue
             try:
                 r = self._socket.send(data)
                 if r < len(data):
@@ -211,7 +212,7 @@ class Socket(event.EventEmitter):
     def write(self, data):
         if self._state != STATE_STREAMING:
             return False
-        if isinstance(data, Buffer) and self._wbuffers and self._wbuffers[-1] == data:
+        if self._wbuffers and isinstance(data, Buffer) and self._wbuffers[-1] == data:
             return False
         self._wbuffers.append(data)
         if not self._write():
