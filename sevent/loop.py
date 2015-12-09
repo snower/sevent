@@ -68,8 +68,8 @@ class TimeoutHandler(object):
 
 class SSLoop(object):
     def __init__(self):
-        self._handlers = deque()
-        self._run_handlers = deque()
+        self._handlers = deque(maxlen = 0xffff)
+        self._run_handlers = deque(maxlen = 0xffff)
         self._timeout_handlers = []
         self._fd_handlers = defaultdict(list)
         self._stopped = False
@@ -178,7 +178,7 @@ class SSLoop(object):
 
             # call handlers without fd
             self._handlers, self._run_handlers = self._run_handlers, self._handlers
-            while self._run_handlers:
+            for _ in xrange(len(self._run_handlers)):
                 callback, args, kwargs = self._run_handlers.popleft()
                 try:
                     callback(*args, **kwargs)
