@@ -11,6 +11,7 @@ import logging
 from collections import defaultdict
 from loop import instance
 from event import EventEmitter
+from .buffer import BufferEmptyError
 
 VALID_HOSTNAME = re.compile(br"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
 
@@ -195,10 +196,12 @@ class DNSResolver(EventEmitter):
                     if type == QTYPE_A or (hostname_status == 1 and type == QTYPE_AAAA):
                         self.call_callback(hostname, ip)
 
-        data = buffer.next()
-        while data:
+        while True:
+            try:
+                data = buffer.next()
+            except BufferEmptyError:
+                break
             do(data)
-            data = buffer.next()
 
     def send_req(self, hostname, qtype=None):
         qtype = ([QTYPE_A, QTYPE_AAAA] if qtype is None else [qtype]) if not isinstance(qtype, (list, tuple)) else qtype
