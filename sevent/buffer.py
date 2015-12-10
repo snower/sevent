@@ -126,16 +126,16 @@ class Buffer(EventEmitter):
         return self._len > 0
 
     def __getitem__(self, index):
-        if index == 0:
-            return self._buffer[self._index:]
-        return self._buffers[index - 1]
+        return str(self).__getitem__(index)
 
     def __iter__(self):
-        data = self.next()
-        while data:
+        while True:
+            try:
+                data = self.next()
+            except BufferEmptyError:
+                raise StopIteration()
             yield data
-            data = self.next()
-        raise StopIteration()
+        
 
     def __contains__(self, item):
         return str(self).__contains__(item)
