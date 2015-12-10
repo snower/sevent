@@ -156,7 +156,7 @@ class Socket(event.EventEmitter):
 
     def _read(self):
         data = False
-        while self._state in (STATE_STREAMING, STATE_CLOSING):
+        while True:
             try:
                 data = self._socket.recv(RECV_BUFSIZE)
                 if not data:
@@ -174,8 +174,8 @@ class Socket(event.EventEmitter):
                     self._error(e)
                     return
 
-            if data:
-                self._loop.async(self.emit, 'data', self, self._rbuffers)
+        if data:
+            self._loop.async(self.emit, 'data', self, self._rbuffers)
 
     def _write_cb(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
@@ -184,7 +184,7 @@ class Socket(event.EventEmitter):
             self._loop.async(self.emit, 'drain', self)
 
     def _write(self):
-        while self._state in (STATE_STREAMING, STATE_CLOSING) and self._wbuffers:
+        while self._wbuffers:
             data = self._wbuffers.popleft()
             try:
                 if isinstance(data, Buffer):

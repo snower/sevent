@@ -25,7 +25,7 @@ class Buffer(EventEmitter):
         self._regain_size = MAX_BUFFER_SIZE * 0.6
 
     def join(self):
-        if self._len + self._index > self._buffer_len:
+        if self._buffer_len - self._index < self._len:
             if self._index < self._buffer_len:
                 self._buffers.appendleft(self._buffer[self._index:])
             if len(self._buffers) > 1:
@@ -53,13 +53,10 @@ class Buffer(EventEmitter):
             raise BufferEmptyError()
             
         if size < 0:
-            if self._len == self._buffer_len:
-                data = self._buffer[self._index:] if self._index > 0 else self._buffer
-                self._len, self._buffer_len = 0, 0
-            else:
+            if self._buffer_len - self._index < self._len:
                 self.join()
-                data = self._buffer
-                self._index, self._len, self._buffer_len = 0, 0, 0
+            data = self._buffer[self._index:] if self._index > 0 else self._buffer
+            self._index, self._buffer_len, self._len = 0, 0, 0
 
             if self._full and self._len < self._regain_size:
                 self._full = False
