@@ -132,7 +132,6 @@ class Buffer(EventEmitter):
             except BufferEmptyError:
                 raise StopIteration()
             yield data
-        
 
     def __contains__(self, item):
         return str(self).__contains__(item)

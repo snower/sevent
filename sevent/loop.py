@@ -68,8 +68,8 @@ class TimeoutHandler(object):
 
 class SSLoop(object):
     def __init__(self):
-        self._handlers = deque(maxlen = 0xffff)
-        self._run_handlers = deque(maxlen = 0xffff)
+        self._handlers = deque()
+        self._run_handlers = deque()
         self._timeout_handlers = []
         self._fd_handlers = defaultdict(list)
         self._stopped = False
