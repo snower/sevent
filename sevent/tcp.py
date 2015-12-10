@@ -6,7 +6,7 @@ import socket
 import errno
 import event
 from loop import instance, MODE_IN, MODE_OUT
-from buffer import Buffer
+from buffer import Buffer, BufferEmptyError
 from dns import DNSResolver
 
 STATE_INITIALIZED = 0x01
@@ -27,7 +27,7 @@ class Socket(event.EventEmitter):
         self._dns_resolver = dns_resolver or DNSResolver.default()
         self._connect_handler = False
         self._read_handler = False
-        self._write_handler = True
+        self._write_handler = False
         self._rbuffers = Buffer()
         self._wbuffers = deque()
         self._state = STATE_INITIALIZED
@@ -186,15 +186,15 @@ class Socket(event.EventEmitter):
     def _write(self):
         while self._state in (STATE_STREAMING, STATE_CLOSING) and self._wbuffers:
             data = self._wbuffers.popleft()
-            if isinstance(data, Buffer):
-                data = data.read(-1)
-                if not data:
-                    continue
             try:
+                if isinstance(data, Buffer):
+                    data = data.read(-1)
                 r = self._socket.send(data)
                 if r < len(data):
                     self._wbuffers.appendleft(data[r:])
                     return False
+            except BufferEmptyError:
+                continue
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                     self._wbuffers.appendleft(data)
@@ -215,15 +215,14 @@ class Socket(event.EventEmitter):
         if self._wbuffers and isinstance(data, Buffer) and self._wbuffers[-1] == data:
             return False
         self._wbuffers.append(data)
-        if not self._write():
+        if not self._write_handler:
+            if self._write():
+                self._loop.async(self.emit,'drain', self)
+                return True
+            self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
             if not self._write_handler:
-                self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
-                if not self._write_handler:
-                    self._error(Exception("write data add fd error"))
-                    return False
-            return True
-        self._loop.async(self.emit,'drain', self)
-        return True
+                self._error(Exception("write data add fd error"))
+        return False
 
 
 class Server(event.EventEmitter):
