@@ -153,6 +153,7 @@ class SSLoop(object):
 
     def start(self):
         while not self._stopped:
+            timeout = 1
             cur_time = time.time()
             while self._timeout_handlers:
                 handler = self._timeout_handlers[0]
@@ -163,9 +164,10 @@ class SSLoop(object):
                     except Exception, e:
                         logging.exception("loop callback error:%s", e)
                 else:
+                    timeout = self._timeout_handlers[0].deadline - time.time()
                     break
 
-            timeout = 0 if self._handlers else (self._timeout_handlers[0].deadline - time.time() if self._timeout_handlers else 0.5)
+            timeout = 0 if self._handlers else timeout
             fds_ready = self._poll(timeout)
             for fd, mode in fds_ready:
                 handlers = self._fd_handlers[fd]
