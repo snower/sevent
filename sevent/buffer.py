@@ -6,7 +6,7 @@ from collections import deque
 from event import EventEmitter
 from loop import current
 
-MAX_BUFFER_SIZE = 1024 * 1024
+MAX_BUFFER_SIZE = 2 * 1024 * 1024
 
 class Buffer(EventEmitter):
     def __init__(self):
@@ -20,7 +20,7 @@ class Buffer(EventEmitter):
         self._index = 0
         self._full = False
         self._drain_size = MAX_BUFFER_SIZE
-        self._regain_size = MAX_BUFFER_SIZE * 0.6
+        self._regain_size = MAX_BUFFER_SIZE * 0.8
 
     def join(self):
         if self._buffer_len - self._index < self._len:
