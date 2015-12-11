@@ -11,7 +11,6 @@ import logging
 from collections import defaultdict
 from loop import instance
 from event import EventEmitter
-from .buffer import BufferEmptyError
 
 VALID_HOSTNAME = re.compile(br"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
 
@@ -197,9 +196,8 @@ class DNSResolver(EventEmitter):
                         self.call_callback(hostname, ip)
 
         while True:
-            try:
-                data = buffer.next()
-            except BufferEmptyError:
+            data = buffer.next()
+            if not data:
                 break
             do(data)
 

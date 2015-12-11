@@ -8,8 +8,6 @@ from loop import current
 
 MAX_BUFFER_SIZE = 1024 * 1024
 
-class BufferEmptyError(Exception): pass
-
 class Buffer(EventEmitter):
     def __init__(self):
         super(Buffer, self).__init__()
@@ -50,7 +48,7 @@ class Buffer(EventEmitter):
 
     def read(self, size = -1):
         if self._len <= 0:
-            raise BufferEmptyError()
+            return None
             
         if size < 0:
             if self._buffer_len - self._index < self._len:
@@ -82,7 +80,7 @@ class Buffer(EventEmitter):
 
     def next(self):
         if self._len <= 0:
-            raise BufferEmptyError()
+            return None
             
         if self._buffer_len - self._index > 0:
             self._len -= self._buffer_len - self._index
@@ -127,9 +125,8 @@ class Buffer(EventEmitter):
 
     def __iter__(self):
         while True:
-            try:
-                data = self.next()
-            except BufferEmptyError:
+            data = self.next()
+            if not data:
                 raise StopIteration()
             yield data
 

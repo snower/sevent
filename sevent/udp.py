@@ -9,7 +9,7 @@ from collections import deque, defaultdict
 from event import EventEmitter
 from loop import instance, MODE_IN, MODE_OUT
 from dns import DNSResolver
-from buffer import Buffer, BufferEmptyError
+from buffer import Buffer
 
 STATE_STREAMING = 0x01
 STATE_BINDING = 0x02
@@ -121,21 +121,20 @@ class Socket(EventEmitter):
             address, data = self._wbuffers.popleft()
             if isinstance(data, Buffer):
                 while True:
-                    try:
-                        data = data.next()
-                        try:
-                            r = self._socket.sendto(data, address)
-                            if r < len(data):
-                                self._wbuffers.appendleft((address, data[r:]))
-                                return False
-                        except socket.error as e:
-                            if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                                self._wbuffers.appendleft((address, data))
-                            else:
-                                self._error(e)
-                            return False
-                    except BufferEmptyError:
+                    data = data.next()
+                    if not data:
                         break
+                    try:
+                        r = self._socket.sendto(data, address)
+                        if r < len(data):
+                            self._wbuffers.appendleft((address, data[r:]))
+                            return False
+                    except socket.error as e:
+                        if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
+                            self._wbuffers.appendleft((address, data))
+                        else:
+                            self._error(e)
+                        return False
             else:
                 try:
                     r = self._socket.sendto(data, address)

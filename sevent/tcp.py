@@ -6,7 +6,7 @@ import socket
 import errno
 import event
 from loop import instance, MODE_IN, MODE_OUT
-from buffer import Buffer, BufferEmptyError
+from buffer import Buffer
 from dns import DNSResolver
 
 STATE_INITIALIZED = 0x01
@@ -189,12 +189,12 @@ class Socket(event.EventEmitter):
             try:
                 if isinstance(data, Buffer):
                     data = data.read(-1)
+                    if not data:
+                        continue
                 r = self._socket.send(data)
                 if r < len(data):
                     self._wbuffers.appendleft(data[r:])
                     return False
-            except BufferEmptyError:
-                continue
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                     self._wbuffers.appendleft(data)
