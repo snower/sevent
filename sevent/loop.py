@@ -154,18 +154,19 @@ class SSLoop(object):
     def start(self):
         while not self._stopped:
             timeout = 1
-            cur_time = time.time()
-            while self._timeout_handlers:
-                handler = self._timeout_handlers[0]
-                if handler.deadline <= cur_time:
-                    self._timeout_handlers.pop(0)
-                    try:
-                        handler()
-                    except Exception, e:
-                        logging.exception("loop callback error:%s", e)
-                else:
-                    timeout = self._timeout_handlers[0].deadline - time.time()
-                    break
+            if self._timeout_handlers:
+                cur_time = time.time()
+                while self._timeout_handlers:
+                    handler = self._timeout_handlers[0]
+                    if handler.deadline <= cur_time:
+                        self._timeout_handlers.pop(0)
+                        try:
+                            handler()
+                        except Exception, e:
+                            logging.exception("loop callback error:%s", e)
+                    else:
+                        timeout = self._timeout_handlers[0].deadline - time.time()
+                        break
 
             if self._handlers:
                 timeout = 0
