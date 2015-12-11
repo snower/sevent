@@ -167,7 +167,9 @@ class SSLoop(object):
                     timeout = self._timeout_handlers[0].deadline - time.time()
                     break
 
-            timeout = 0 if self._handlers else timeout
+            if self._handlers:
+                timeout = 0
+                
             fds_ready = self._poll(timeout)
             for fd, mode in fds_ready:
                 handlers = self._fd_handlers[fd]
