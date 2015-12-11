@@ -2,7 +2,7 @@
 
 import select
 import time
-import bisect
+import heapq
 import logging
 from collections import defaultdict, deque
 
@@ -159,7 +159,7 @@ class SSLoop(object):
                 while self._timeout_handlers:
                     handler = self._timeout_handlers[0]
                     if handler.deadline <= cur_time:
-                        self._timeout_handlers.pop(0)
+                        heapq.heappop(self._timeout_handlers)
                         try:
                             handler()
                         except Exception, e:
@@ -198,7 +198,7 @@ class SSLoop(object):
 
     def timeout(self, timeout, callback, *args, **kwargs):
         handler = TimeoutHandler(callback, time.time() + timeout, args, kwargs)
-        bisect.insort(self._timeout_handlers, handler)
+        heapq.heappush(self._timeout_handlers, handler)
         return handler
 
     def cancel_timeout(self, handler):
