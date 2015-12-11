@@ -53,14 +53,15 @@ class Buffer(EventEmitter):
         if size < 0:
             if self._buffer_len - self._index < self._len:
                 self.join()
-            data = self._buffer[self._index:] if self._index > 0 else self._buffer
+            if self._index > 0:
+                self._buffer = self._buffer[self._index:]
             self._index, self._buffer_len, self._len = 0, 0, 0
 
             if self._full and self._len < self._regain_size:
                 self._full = False
                 self._loop.async(self.emit, "regain", self)
 
-            return data
+            return self._buffer
 
         if self._len < size:
             return None
