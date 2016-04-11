@@ -2,6 +2,7 @@
 # 15/1/27
 # create by: snower
 
+import time
 from collections import deque
 from event import EventEmitter
 from loop import current
@@ -20,7 +21,9 @@ class Buffer(EventEmitter):
         self._index = 0
         self._full = False
         self._drain_size = MAX_BUFFER_SIZE
-        self._regain_size = MAX_BUFFER_SIZE * 0.8
+        self._regain_size = MAX_BUFFER_SIZE * 0.5
+        self._drain_time = time.time()
+        self._regain_time = time.time()
 
     def join(self):
         if self._buffer_len - self._index < self._len:
@@ -44,6 +47,7 @@ class Buffer(EventEmitter):
         self._len += len(data)
         if self._len > self._drain_size:
             self._full = True
+            self._drain_time = time.time()
             self._loop.async(self.emit, "drain", self)
 
     def read(self, size = -1):
@@ -59,6 +63,10 @@ class Buffer(EventEmitter):
 
             if self._full and self._len < self._regain_size:
                 self._full = False
+                self._regain_time = time.time()
+                if self._regain_time - self._drain_size <= 1:
+                    self._drain_size = self._drain_size * 2
+                    self._regain_size = self._drain_size * 0.5
                 self._loop.async(self.emit, "regain", self)
 
             return self._buffer
