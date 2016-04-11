@@ -32,7 +32,7 @@ def on_error(s, e):
     print 'on_error'
     print e
 
-s = sevent.Socket()
+s = sevent.tcp.Socket()
 s.on('connect', on_connect)
 s.on('data', on_data)
 s.on('end', on_end)
