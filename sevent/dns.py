@@ -28,7 +28,7 @@ STATUS_OPENED = 0
 STATUS_CLOSED = 1
 
 class DNSCache(object):
-    def __init__(self, default_ttl = 1200):
+    def __init__(self, default_ttl = 60):
         self.default_ttl = default_ttl
         self._cache = {}
 
