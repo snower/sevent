@@ -107,7 +107,7 @@ class Socket(EventEmitter):
             self._loop.async(self.emit, 'data', self, address, self._rbuffers[address])
 
         if len(self._rbuffers) > 64:
-            for address in self._rbuffers:
+            for address in self._rbuffers.keys():
                 if not self._rbuffers[address]:
                     del self._rbuffers[address]
 
@@ -199,8 +199,8 @@ class Server(Socket):
             elif self._state == STATE_BINDING:
                 self._socket.bind((ip, address[1]))
 
-        self._dns_resolver.resolve(address[0], do_bind)
         self._state = STATE_BINDING
+        self._dns_resolver.resolve(address[0], do_bind)
 
     def __del__(self):
         self.close()
