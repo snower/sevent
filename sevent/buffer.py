@@ -122,9 +122,7 @@ class Buffer(EventEmitter):
         return self._len
 
     def __str__(self):
-        if self._index > 0:
-            return self._buffer[self._index:] + "".join(self._buffers)
-        return "".join(self._buffers)
+        return self._buffer[self._index:] + "".join(self._buffers)
 
     def __nonzero__(self):
         return self._len > 0
