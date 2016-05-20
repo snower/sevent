@@ -322,7 +322,7 @@ class DNSResolver(EventEmitter):
         nlen, name = self.parse_name(data, offset)
         if not question:
             record_type, record_class, record_ttl, record_rdlength = struct.unpack(
-                '!HHiH', data[offset + nlen:offset + nlen + 10]
+                '!HHIH', data[offset + nlen:offset + nlen + 10]
             )
             ip = self.parse_ip(record_type, data, record_rdlength, offset + nlen + 10)
             return nlen + 10 + record_rdlength, \
