@@ -85,7 +85,7 @@ class DNSResolver(EventEmitter):
             cls._instance = cls()
         return cls._instance
 
-    def __init__(self, loop=None, servers=None, hosts=None):
+    def __init__(self, loop=None, servers=None, hosts=None, resolve_timeout = None, resend_timeout = 0.5):
         super(DNSResolver, self).__init__()
 
         self._loop = loop or instance()
@@ -103,6 +103,10 @@ class DNSResolver(EventEmitter):
             self.parse_resolv()
         if not hosts:
             self.parse_hosts()
+
+        self._resolve_timeout = resolve_timeout if resolve_timeout else (len(self._servers) * resend_timeout + 5)
+        self._resend_timeout = resend_timeout
+
         self.create_socket()
 
     def create_socket(self):
@@ -210,7 +214,14 @@ class DNSResolver(EventEmitter):
                 self._socket.write((server, 53), req)
             self._hostname_server_index[hostname] = server_index + 1
 
-    def resolve(self, hostname, callback, timeout = 5):
+            def on_timeout():
+                if server_index + 1 >= len(self._servers):
+                    return
+                if hostname not in self._cache and self._hostname_status.get(hostname, 0) == 0:
+                    self.send_req(hostname, qtype)
+            self._loop.timeout(self._resend_timeout, on_timeout)
+
+    def resolve(self, hostname, callback, timeout = None):
         if self._status == STATUS_CLOSED:
             return callback(hostname, None)
 
@@ -232,13 +243,12 @@ class DNSResolver(EventEmitter):
                 callbacks = self._queue[hostname]
                 if not callbacks:
                     self.send_req(hostname)
-                    if timeout > 0:
-                        def on_timeout():
-                            if hostname not in self._cache:
-                                self.call_callback(hostname, None)
-                            elif self._hostname_status.get(hostname, 0) == 2:
-                                self.call_callback(hostname, self._cache[hostname])
-                        self._loop.timeout(timeout, on_timeout)
+                    def on_timeout():
+                        if hostname not in self._cache:
+                            self.call_callback(hostname, None)
+                        elif self._hostname_status.get(hostname, 0) == 2:
+                            self.call_callback(hostname, self._cache[hostname])
+                    self._loop.timeout(timeout or self._resolve_timeout, on_timeout)
                 callbacks.append(callback)
 
     def flush(self):
