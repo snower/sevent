@@ -157,12 +157,13 @@ class DNSResolver(EventEmitter):
 
     def call_callback(self, hostname, ip):
         callbacks = self._queue[hostname]
-        del self._queue[hostname]
-
-        for callback in callbacks:
-            callback(hostname, ip)
-
-        self.emit("resolve", self, hostname, ip)
+        if callbacks
+            del self._queue[hostname]
+    
+            for callback in callbacks:
+                self._loop.async(callback, hostname, ip)
+    
+            self._loop.async(self.emit, "resolve", self, hostname, ip)
 
         if hostname in self._hostname_server_index:
             del self._hostname_server_index[hostname]
@@ -171,10 +172,10 @@ class DNSResolver(EventEmitter):
             del self._hostname_status[hostname]
 
     def on_data(self, socket, address, buffer):
-        for data in buffer:
-            if address[0] not in self._servers:
+        if address[0] not in self._servers:
                 return
-
+            
+        for data in buffer:
             response = self.parse_response(data)
             if response and response.hostname:
                 hostname = response.hostname
@@ -215,7 +216,7 @@ class DNSResolver(EventEmitter):
             def on_timeout():
                 if server_index + 1 >= len(self._servers):
                     return
-                if hostname not in self._cache and self._hostname_status.get(hostname, 0) == 0:
+                if hostname not in self._cache:
                     self.send_req(hostname, qtype)
             self._loop.timeout(self._resend_timeout, on_timeout)
 
