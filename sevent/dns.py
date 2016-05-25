@@ -157,7 +157,7 @@ class DNSResolver(EventEmitter):
 
     def call_callback(self, hostname, ip):
         callbacks = self._queue[hostname]
-        if callbacks
+        if callbacks:
             del self._queue[hostname]
     
             for callback in callbacks:
