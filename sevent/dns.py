@@ -189,7 +189,6 @@ class DNSResolver(EventEmitter):
                 if not answers:
                     if hostname_status == 1:
                         self.send_req(hostname)
-                        self._hostname_status[hostname] = 0
                     elif hostname_status == 2:
                         self.call_callback(hostname, self._cache[hostname])
                     else:
@@ -206,6 +205,7 @@ class DNSResolver(EventEmitter):
     def send_req(self, hostname, qtype=None):
         qtype = ([QTYPE_A, QTYPE_AAAA] if qtype is None else [qtype]) if not isinstance(qtype, (list, tuple)) else qtype
         server_index = self._hostname_server_index.get(hostname, -1)
+        self._hostname_status[hostname] = 0
         if server_index + 1 < len(self._servers):
             server = self._servers[server_index + 1]
             for qt in qtype:
