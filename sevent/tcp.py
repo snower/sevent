@@ -132,7 +132,8 @@ class Socket(event.EventEmitter):
             self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
             
         def on_timeout_cb():
-            self._error(Exception("connect time out %s %s %s" % (address, self._address, e)))
+            if self._state == STATE_CONNECTING:
+                self._error(Exception("connect time out %s %s" % (address, self._address)))
 
         self._dns_resolver.resolve(address[0], do_connect)
         self._loop.timeout(timeout, on_timeout_cb)
