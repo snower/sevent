@@ -102,10 +102,6 @@ class Socket(event.EventEmitter):
         self._rbuffers.on("regain", lambda _ : self.regain())
         self._loop.async(self.emit, 'connect', self)
 
-    def _timeout_cb(self):
-        if self._state == STATE_CONNECTING:
-            self._error(Exception("connect time out"))
-
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:
             return
@@ -124,8 +120,8 @@ class Socket(event.EventEmitter):
                     addr = addrinfo[0]
                     self._socket = socket.socket(addr[0], addr[1], addr[2])
                     self._socket.setblocking(False)
-                    self._socket.connect(addr[4])
                     self._address = addr[4]
+                    self._socket.connect(addr[4])
                 else:
                     self._error(Exception('can not resolve hostname %s',address))
                     return
@@ -134,9 +130,12 @@ class Socket(event.EventEmitter):
                     self._error(Exception("connect error %s %s %s" % (address, self._address, e)))
                     return
             self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+            
+        def on_timeout_cb():
+            self._error(Exception("connect time out %s %s %s" % (address, self._address, e)"))
 
         self._dns_resolver.resolve(address[0], do_connect)
-        self._loop.timeout(timeout, self._timeout_cb)
+        self._loop.timeout(timeout, on_timeout_cb)
         self._state = STATE_CONNECTING
 
     def drain(self):
