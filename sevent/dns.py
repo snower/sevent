@@ -104,7 +104,7 @@ class DNSResolver(EventEmitter):
         if not hosts:
             self.parse_hosts()
 
-        self._resolve_timeout = resolve_timeout if resolve_timeout else (len(self._servers) * resend_timeout + 5)
+        self._resolve_timeout = resolve_timeout if resolve_timeout else (len(self._servers) * resend_timeout + 4)
         self._resend_timeout = resend_timeout
 
         self.create_socket()
