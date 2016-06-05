@@ -131,7 +131,7 @@ class Socket(event.EventEmitter):
                     return
             except socket.error as e:
                 if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
-                    self._error(e)
+                    self._error(Exception("connect error %s %s %s" % (address, self._address, e)))
                     return
             self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
 
