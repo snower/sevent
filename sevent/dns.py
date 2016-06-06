@@ -203,21 +203,22 @@ class DNSResolver(EventEmitter):
                         self.call_callback(hostname, ip)
 
     def send_req(self, hostname, qtype=None):
-        qtype = ([QTYPE_A, QTYPE_AAAA] if qtype is None else [qtype]) if not isinstance(qtype, (list, tuple)) else qtype
         server_index = self._hostname_server_index.get(hostname, -1)
-        self._hostname_status[hostname] = 0
         if server_index + 1 < len(self._servers):
             server = self._servers[server_index + 1]
+            if qtype is None:
+                qtype = [QTYPE_A, QTYPE_AAAA] if self.is_ip(server) == socket.AF_INET6 else [QTYPE_A]
             for qt in qtype:
                 req = self.build_request(hostname, qt)
                 self._socket.write((server, 53), req)
             self._hostname_server_index[hostname] = server_index + 1
+            self._hostname_status[hostname] = 0
 
             def on_timeout():
                 if server_index + 1 >= len(self._servers):
                     return
                 if hostname not in self._cache:
-                    self.send_req(hostname, qtype)
+                    self.send_req(hostname)
             self._loop.timeout(self._resend_timeout, on_timeout)
 
     def resolve(self, hostname, callback, timeout = None):
