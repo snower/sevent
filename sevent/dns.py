@@ -127,7 +127,7 @@ class DNSResolver(EventEmitter):
                             parts = line.split()
                             if len(parts) >= 2:
                                 server = parts[1]
-                                if self.is_ip(server) == socket.AF_INET:
+                                if self.is_ip(server):
                                     if type(server) != str:
                                         server = server.decode('utf8')
                                     self._servers.append(server)
