@@ -97,6 +97,7 @@ class DNSResolver(EventEmitter):
         self._hostname_status = {}
         self._hostname_server_index = {}
         self._socket = None
+        self._socket6 = None
         self._status = STATUS_OPENED
 
         if not servers:
@@ -107,13 +108,17 @@ class DNSResolver(EventEmitter):
         self._resolve_timeout = resolve_timeout if resolve_timeout else (len(self._servers) * resend_timeout + 4)
         self._resend_timeout = resend_timeout
 
-        self.create_socket()
-
     def create_socket(self):
-        from udp import Socket
+        from udp import Socket, Socket6
         self._socket = Socket(self._loop)
         self._socket.on("data", self.on_data)
         self._socket.on("close", self.on_close)
+
+    def create_socket6(self):
+        from udp import Socket6
+        self._socket6 = Socket6(self._loop)
+        self._socket6.on("data", self.on_data)
+        self._socket6.on("close", self.on_close)
 
     def parse_resolv(self):
         self._servers = []
@@ -206,11 +211,19 @@ class DNSResolver(EventEmitter):
         server_index = self._hostname_server_index.get(hostname, -1)
         if server_index + 1 < len(self._servers):
             server = self._servers[server_index + 1]
+            server_family = self.is_ip(server)
             if qtype is None:
-                qtype = [QTYPE_A, QTYPE_AAAA] if self.is_ip(server) == socket.AF_INET6 else [QTYPE_A]
+                qtype = [QTYPE_A, QTYPE_AAAA] if server_family == socket.AF_INET6 else [QTYPE_A]
             for qt in qtype:
                 req = self.build_request(hostname, qt)
-                self._socket.write((server, 53), req)
+                if server_family == socket.AF_INET6:
+                    if self._socket6 is None:
+                        self.create_socket6()
+                    self._socket6.write((server, 53), req)
+                else:
+                    if self._socket is None:
+                        self.create_socket()
+                    self._socket.write((server, 53), req)
             self._hostname_server_index[hostname] = server_index + 1
             self._hostname_status[hostname] = 0
 
@@ -258,7 +271,10 @@ class DNSResolver(EventEmitter):
         if self._status == STATUS_CLOSED:
             return
 
-        self.create_socket()
+        if self._socket == socket:
+            self._socket = None
+        else:
+            self._socket6 = None
 
     def close(self):
         if self._status == STATUS_CLOSED:

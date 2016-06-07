@@ -31,15 +31,23 @@ class Socket(EventEmitter):
                     return getattr(self._dns_resolver, name)
             self._dns_resolver = DNSResolverProxy()
 
+        self._socket = None
+        self._read_handler = None
+        self._write_handler = None
+
+        self._create_socket()
+
+        self._rbuffers = defaultdict(Buffer)
+        self._wbuffers = deque()
+        self._address_cache = {}
+        self._state = STATE_STREAMING
+
+    def _create_socket(self):
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
         self._socket.setblocking(False)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
         self._write_handler = None
-        self._rbuffers = defaultdict(Buffer)
-        self._wbuffers = deque()
-        self._address_cache = {}
-        self._state = STATE_STREAMING
 
     def __del__(self):
         self.close()
@@ -186,7 +194,16 @@ class Socket(EventEmitter):
             self._dns_resolver.resolve(address[0], resolve_callback)
             return False
         else:
-            return do_write(address)
+            ip = self._address_cache[address[0]]
+            return do_write((ip, address[1]))
+
+class Socket6(Socket):
+    def _create_socket(self):
+        self._socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
+        self._socket.setblocking(False)
+        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+        self._write_handler = None
 
 class Server(Socket):
     def __init__(self, loop=None):
@@ -204,3 +221,11 @@ class Server(Socket):
 
     def __del__(self):
         self.close()
+
+class Server6(Server):
+    def _create_socket(self):
+        self._socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
+        self._socket.setblocking(False)
+        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+        self._write_handler = None
