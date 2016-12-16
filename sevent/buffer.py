@@ -7,7 +7,7 @@ from collections import deque
 from event import EventEmitter
 from loop import current
 
-MAX_BUFFER_SIZE = 2 * 1024 * 1024
+MAX_BUFFER_SIZE = 4 * 1024 * 1024
 
 class Buffer(EventEmitter):
     def __init__(self):
