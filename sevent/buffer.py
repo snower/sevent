@@ -52,7 +52,7 @@ class Buffer(EventEmitter):
         if self._len > self._drain_size:
             self._full = True
             self._drain_time = time.time()
-            self._loop.async(self.emit, "drain", self)
+            self.emit("drain", self)
 
     def read(self, size = -1):
         if self._len <= 0:
@@ -71,7 +71,7 @@ class Buffer(EventEmitter):
                 if self._regain_time - self._drain_size <= 1:
                     self._drain_size = self._drain_size * 2
                     self._regain_size = self._drain_size * 0.5
-                self._loop.async(self.emit, "regain", self)
+                self.emit("regain", self)
 
             return self._buffer
 
@@ -87,7 +87,7 @@ class Buffer(EventEmitter):
 
         if self._full and self._len < self._regain_size:
             self._full = False
-            self._loop.async(self.emit, "regain", self)
+            self.emit("regain", self)
 
         return data
 
@@ -120,7 +120,7 @@ class Buffer(EventEmitter):
 
         if self._full and self._len < self._regain_size:
             self._full = False
-            self._loop.async(self.emit, "regain", self)
+            self.emit("regain", self)
 
     def __len__(self):
         return self._len
