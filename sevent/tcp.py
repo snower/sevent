@@ -187,7 +187,7 @@ class Socket(event.EventEmitter):
         while self._wbuffers:
             data = self._wbuffers.popleft()
             try:
-                if isinstance(data, Buffer):
+                if data.__class__ == Buffer:
                     data = data.read(-1)
                     if not data:
                         continue
@@ -212,7 +212,7 @@ class Socket(event.EventEmitter):
     def write(self, data):
         if self._state != STATE_STREAMING:
             return False
-        if self._wbuffers and isinstance(data, Buffer) and self._wbuffers[-1] == data:
+        if self._wbuffers and data.__class__ == Buffer and self._wbuffers[-1] == data:
             return False
         self._wbuffers.append(data)
         if not self._write_handler:

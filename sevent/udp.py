@@ -127,7 +127,7 @@ class Socket(EventEmitter):
     def _write(self):
         while self._wbuffers:
             address, data = self._wbuffers.popleft()
-            if isinstance(data, Buffer):
+            if data.__class__ == Buffer:
                 while True:
                     data = data.next()
                     if not data:
@@ -168,7 +168,7 @@ class Socket(EventEmitter):
         if self._state not in (STATE_STREAMING, STATE_BINDING):
             return False
 
-        if isinstance(data, Buffer) and self._wbuffers and self._wbuffers[-1][0] == address and self._wbuffers[-1][1] == data:
+        if data.__class__ == Buffer and self._wbuffers and self._wbuffers[-1][0] == address and self._wbuffers[-1][1] == data:
             return False
 
         def do_write(address):
