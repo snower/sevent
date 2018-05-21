@@ -19,7 +19,13 @@ STATE_CLOSED = 0x20
 RECV_BUFSIZE = 4096
 
 class Socket(event.EventEmitter):
-    def __init__(self, loop=None, socket=None, address=None, dns_resolver = None):
+    MAX_BUFFER_SIZE = None
+
+    @classmethod
+    def config(cls, max_buffer_size, **kwargs):
+        cls.MAX_BUFFER_SIZE = max_buffer_size
+
+    def __init__(self, loop=None, socket=None, address=None, dns_resolver = None, max_buffer_size = None):
         super(Socket, self).__init__()
         self._loop =loop or instance()
         self._socket = socket
@@ -28,7 +34,7 @@ class Socket(event.EventEmitter):
         self._connect_handler = False
         self._read_handler = False
         self._write_handler = False
-        self._rbuffers = Buffer()
+        self._rbuffers = Buffer(max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE)
         self._wbuffers = deque()
         self._state = STATE_INITIALIZED
 
@@ -156,7 +162,7 @@ class Socket(event.EventEmitter):
 
     def _read(self):
         data = False
-        while True:
+        while self._read_handler:
             try:
                 data = self._socket.recv(RECV_BUFSIZE)
                 if not data:

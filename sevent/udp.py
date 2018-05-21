@@ -19,7 +19,13 @@ STATE_CLOSED = 0x06
 RECV_BUFSIZE = 4096
 
 class Socket(EventEmitter):
-    def __init__(self, loop=None, dns_resolver=None):
+    MAX_BUFFER_SIZE = None
+
+    @classmethod
+    def config(cls, max_buffer_size, **kwargs):
+        cls.MAX_BUFFER_SIZE = max_buffer_size
+
+    def __init__(self, loop=None, dns_resolver=None, max_buffer_size = None):
         super(Socket, self).__init__()
         self._loop = loop or instance()
         self._dns_resolver = dns_resolver
@@ -37,7 +43,10 @@ class Socket(EventEmitter):
 
         self._create_socket()
 
-        self._rbuffers = defaultdict(Buffer)
+        def init_buffer():
+            return Buffer(max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE)
+
+        self._rbuffers = defaultdict(init_buffer)
         self._wbuffers = deque()
         self._address_cache = {}
         self._state = STATE_STREAMING
@@ -100,7 +109,7 @@ class Socket(EventEmitter):
 
     def _read(self):
         recv_addresses = set([])
-        while True:
+        while self._read_handler:
             try:
                 data, address = self._socket.recvfrom(RECV_BUFSIZE)
                 self._rbuffers[address].write(data)

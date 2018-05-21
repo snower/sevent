@@ -2,15 +2,19 @@
 # 15/1/27
 # create by: snower
 
+import os
 import time
 from collections import deque
 from event import EventEmitter
 from loop import current
 
-MAX_BUFFER_SIZE = 2 * 1024 * 1024
+try:
+    MAX_BUFFER_SIZE = int(os.environ.get("SEVENT_MAX_BUFFER_SIZE", 4 * 1024 * 1024))
+except:
+    MAX_BUFFER_SIZE = 4 * 1024 * 1024
 
 class Buffer(EventEmitter):
-    def __init__(self):
+    def __init__(self, max_buffer_size = None):
         super(Buffer, self).__init__()
 
         self._loop = current()
@@ -20,8 +24,8 @@ class Buffer(EventEmitter):
         self._len = 0
         self._index = 0
         self._full = False
-        self._drain_size = MAX_BUFFER_SIZE
-        self._regain_size = MAX_BUFFER_SIZE * 0.5
+        self._drain_size = max_buffer_size or MAX_BUFFER_SIZE
+        self._regain_size = self._drain_size * 0.5
         self._drain_time = time.time()
         self._regain_time = time.time()
 
@@ -48,7 +52,7 @@ class Buffer(EventEmitter):
         if self._len > self._drain_size:
             self._full = True
             self._drain_time = time.time()
-            self._loop.async(self.emit, "drain", self)
+            self.emit("drain", self)
 
     def read(self, size = -1):
         if self._len <= 0:
@@ -67,7 +71,7 @@ class Buffer(EventEmitter):
                 if self._regain_time - self._drain_size <= 1:
                     self._drain_size = self._drain_size * 2
                     self._regain_size = self._drain_size * 0.5
-                self._loop.async(self.emit, "regain", self)
+                self.emit("regain", self)
 
             return self._buffer
 
@@ -83,7 +87,7 @@ class Buffer(EventEmitter):
 
         if self._full and self._len < self._regain_size:
             self._full = False
-            self._loop.async(self.emit, "regain", self)
+            self.emit("regain", self)
 
         return data
 
@@ -116,7 +120,7 @@ class Buffer(EventEmitter):
 
         if self._full and self._len < self._regain_size:
             self._full = False
-            self._loop.async(self.emit, "regain", self)
+            self.emit("regain", self)
 
     def __len__(self):
         return self._len
