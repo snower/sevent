@@ -192,8 +192,8 @@ class IOLoop(object):
 
             if self._handlers:
                 timeout = 0
-            else:
-                timeout = min(timeout, 1)
+            elif timeout > 1:
+                timeout = 1
                 
             fds_ready = self._poll(timeout)
             for fd, mode in fds_ready:
