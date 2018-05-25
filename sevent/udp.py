@@ -150,27 +150,25 @@ class Socket(EventEmitter):
             address, data = self._wbuffers[0]
             if data.__class__ == Buffer:
                 while True:
-                    if data.len <= 0:
-                        self._wbuffers.popleft()
-                        break
-
                     try:
-                        r = self._socket.sendto(memoryview(data._buffer)[data._index:], address)
+                        if data._index > 0:
+                            r = self._socket.sendto(memoryview(data._buffer)[data._index:], address)
+                        else:
+                            r = self._socket.sendto(data._buffer, address)
                         data._index += r
                         data._len -= r
 
                         if data._index >= data._buffer_len:
-                            data._index, data._buffer_len = 0, 0
+                            if data._len > 0:
+                                data._buffer = data._buffers.popleft()
+                                data._index, data._buffer_len = 0, len(data._buffer)
+                            else:
+                                data._index, data._buffer_len = 0, 0
+                                data._writting = False
+                                self._wbuffers.popleft()
+                                break
                         else:
                             return False
-
-                        if data._len > 0:
-                            data._buffer = data._buffers.popleft()
-                            data._buffer_len = len(data._buffer)
-                        else:
-                            self._wbuffers.popleft()
-                            break
-
                     except socket.error as e:
                         if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                             self._wbuffers.appendleft((address, data))
@@ -203,8 +201,10 @@ class Socket(EventEmitter):
         if self._state not in (STATE_STREAMING, STATE_BINDING):
             return False
 
-        if data.__class__ == Buffer and self._wbuffers and self._wbuffers[-1][0] == address and self._wbuffers[-1][1] == data:
-            return False
+        if data.__class__ == Buffer:
+            if data._writting:
+                return False
+            data._writting = True
 
         def do_write(address):
             if self._state not in (STATE_STREAMING, STATE_BINDING):

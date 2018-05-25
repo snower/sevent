@@ -210,38 +210,43 @@ class Socket(event.EventEmitter):
     def _write(self):
         while self._wbuffers:
             data = self._wbuffers[0]
-            try:
-                if data.__class__ == Buffer:
-                    if data._len <= 0:
-                        self._wbuffers.popleft()
-                        continue
-
-                    r = self._socket.send(memoryview(data._buffer)[data._index:])
+            if data.__class__ == Buffer:
+                try:
+                    if data._index > 0:
+                        r = self._socket.send(memoryview(data._buffer)[data._index:])
+                    else:
+                        r = self._socket.send(data._buffer)
                     data._index += r
                     data._len -= r
 
                     if data._index >= data._buffer_len:
-                        data._index, data._buffer_len = 0, 0
+                        if data._len > 0:
+                            data._buffer = data._buffers.popleft()
+                            data._index, data._buffer_len = 0, len(data._buffer)
+                        else:
+                            data._index, data._buffer_len = 0, 0
+                            data._writting = False
+                            self._wbuffers.popleft()
+                            continue
                     else:
                         return False
-
-                    if data._len > 0:
-                        data._buffer = data._buffers.popleft()
-                        data._buffer_len = len(data._buffer)
-                    else:
-                        self._wbuffers.popleft()
-                else:
+                except socket.error as e:
+                    if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                        self._error(e)
+                    return False
+            else:
+                try:
                     self._wbuffers.popleft()
                     r = self._socket.send(data)
                     if r < len(data):
                         self._wbuffers.appendleft(data[r:])
                         return False
-            except socket.error as e:
-                if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                    self._wbuffers.appendleft(data)
-                else:
-                    self._error(e)
-                return False
+                except socket.error as e:
+                    if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
+                        self._wbuffers.appendleft(data)
+                    else:
+                        self._error(e)
+                    return False
 
         if self._write_handler:
             self._loop.remove_fd(self._socket, self._write_cb)
@@ -253,8 +258,11 @@ class Socket(event.EventEmitter):
     def write(self, data):
         if self._state != STATE_STREAMING:
             return False
-        if self._wbuffers and data.__class__ == Buffer and self._wbuffers[-1] == data:
-            return False
+        if data.__class__ == Buffer:
+            if data._writting:
+                return False
+            data._writting = True
+
         self._wbuffers.append(data)
         if not self._write_handler:
             if self._write():

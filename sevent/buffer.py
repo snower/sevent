@@ -25,6 +25,7 @@ class Buffer(EventEmitter):
         self._len = 0
         self._index = 0
         self._full = False
+        self._writting = False
         self._drain_size = max_buffer_size or MAX_BUFFER_SIZE
         self._regain_size = self._drain_size * 0.5
         self._drain_time = time.time()
