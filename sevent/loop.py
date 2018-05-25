@@ -188,12 +188,12 @@ class IOLoop(object):
                         heapq.heappop(self._timeout_handlers)
                     else:
                         timeout = self._timeout_handlers[0].deadline - cur_time
+                        if timeout > 1:
+                            timeout = 1
                         break
 
             if self._handlers:
                 timeout = 0
-            elif timeout > 1:
-                timeout = 1
                 
             fds_ready = self._poll(timeout)
             for fd, mode in fds_ready:
