@@ -5,7 +5,7 @@ import time
 import heapq
 import logging
 from collections import defaultdict, deque
-from .utils import is_int, iter_range
+from .utils import is_int
 
 ''' You can only use instance(). Don't create a Loop() '''
 
@@ -178,20 +178,22 @@ class IOLoop(object):
                 cur_time = time.time()
                 while self._timeout_handlers:
                     handler = self._timeout_handlers[0]
-                    if handler.canceled:
-                        heapq.heappop(self._timeout_handlers)
-                    elif handler.deadline <= cur_time:
+                    if handler.deadline <= cur_time:
                         heapq.heappop(self._timeout_handlers)
                         try:
                             handler.callback(*handler.args, **handler.kwargs)
                         except Exception as e:
                             logging.exception("loop callback timeout error:%s", e)
+                    elif handler.canceled:
+                        heapq.heappop(self._timeout_handlers)
                     else:
-                        timeout = min(self._timeout_handlers[0].deadline - time.time(), 1)
+                        timeout = self._timeout_handlers[0].deadline - cur_time
                         break
 
             if self._handlers:
                 timeout = 0
+            else:
+                timeout = min(timeout, 1)
                 
             fds_ready = self._poll(timeout)
             for fd, mode in fds_ready:
@@ -205,7 +207,7 @@ class IOLoop(object):
 
             # call handlers without fd
             self._handlers, self._run_handlers = self._run_handlers, self._handlers
-            for _ in iter_range(len(self._run_handlers)):
+            while self._run_handlers:
                 callback, args, kwargs = self._run_handlers.popleft()
                 try:
                     callback(*args, **kwargs)
