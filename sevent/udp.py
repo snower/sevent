@@ -6,10 +6,10 @@ import logging
 import socket
 import errno
 from collections import deque, defaultdict
-from event import EventEmitter
-from loop import instance, MODE_IN, MODE_OUT
-from dns import DNSResolver
-from buffer import Buffer
+from .event import EventEmitter
+from .loop import instance, MODE_IN, MODE_OUT
+from .dns import DNSResolver
+from .buffer import Buffer
 
 STATE_STREAMING = 0x01
 STATE_BINDING = 0x02
@@ -61,6 +61,18 @@ class Socket(EventEmitter):
     def __del__(self):
         self.close()
 
+    def on_data(self, callback):
+        self.on("data", callback)
+
+    def on_close(self, callback):
+        self.on("close", callback)
+
+    def on_error(self, callback):
+        self.on("error", callback)
+
+    def on_drain(self, callback):
+        self.on("drain", callback)
+
     def end(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             if not self._wbuffers:
@@ -88,8 +100,8 @@ class Socket(EventEmitter):
         self._loop.async(on_close)
 
     def _error(self, error):
-        self._loop.async(self.emit,'error', self, error)
-        logging.error("socket error:%s",error)
+        self._loop.async(self.emit, 'error', self, error)
+        logging.error("socket error:%s", error)
         self.close()
 
     def drain(self):
@@ -131,21 +143,34 @@ class Socket(EventEmitter):
     def _write_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):
             if self._write():
-                self._loop.async(self.emit,'drain', self)
+                self._loop.async(self.emit, 'drain', self)
 
     def _write(self):
         while self._wbuffers:
-            address, data = self._wbuffers.popleft()
+            address, data = self._wbuffers[0]
             if data.__class__ == Buffer:
                 while True:
-                    data = data.next()
-                    if not data:
+                    if data.len <= 0:
+                        self._wbuffers.popleft()
                         break
+
                     try:
-                        r = self._socket.sendto(data, address)
-                        if r < len(data):
-                            self._wbuffers.appendleft((address, data[r:]))
+                        r = self._socket.sendto(memoryview(data._buffer)[data._index:], address)
+                        data._index += r
+                        data._len -= r
+
+                        if data._index >= data._buffer_len:
+                            data._index, data._buffer_len = 0, 0
+                        else:
                             return False
+
+                        if data._len > 0:
+                            data._buffer = data._buffers.popleft()
+                            data._buffer_len = len(data._buffer)
+                        else:
+                            self._wbuffers.popleft()
+                            break
+
                     except socket.error as e:
                         if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                             self._wbuffers.appendleft((address, data))
@@ -153,6 +178,7 @@ class Socket(EventEmitter):
                             self._error(e)
                         return False
             else:
+                self._wbuffers.popleft()
                 try:
                     r = self._socket.sendto(data, address)
                     if r < len(data):
@@ -187,7 +213,7 @@ class Socket(EventEmitter):
             self._wbuffers.append((address, data))
             if not self._write_handler:
                 if self._write():
-                    self._loop.async(self.emit,'drain', self)
+                    self._loop.async(self.emit, 'drain', self)
                     return True
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
                 if not self._write_handler:

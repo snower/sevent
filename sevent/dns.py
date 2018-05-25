@@ -9,8 +9,9 @@ import struct
 import socket
 import logging
 from collections import defaultdict
-from loop import instance
-from event import EventEmitter
+from .loop import instance
+from .event import EventEmitter
+from .utils import ensure_types, is_py3
 
 VALID_HOSTNAME = re.compile(br"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
 
@@ -109,13 +110,13 @@ class DNSResolver(EventEmitter):
         self._resend_timeout = resend_timeout
 
     def create_socket(self):
-        from udp import Socket, Socket6
+        from .udp import Socket, Socket6
         self._socket = Socket(self._loop)
         self._socket.on("data", self.on_data)
         self._socket.on("close", self.on_close)
 
     def create_socket6(self):
-        from udp import Socket6
+        from .udp import Socket6
         self._socket6 = Socket6(self._loop)
         self._socket6.on("data", self.on_data)
         self._socket6.on("close", self.on_close)
@@ -238,8 +239,7 @@ class DNSResolver(EventEmitter):
         if self._status == STATUS_CLOSED:
             return callback(hostname, None)
 
-        if isinstance(hostname, unicode):
-            hostname = hostname.encode('utf8')
+        hostname = ensure_types(hostname)
         if not hostname:
             callback(hostname, None)
 
@@ -296,7 +296,7 @@ class DNSResolver(EventEmitter):
             l = len(label)
             if l > 63:
                 return None
-            results.append(chr(l))
+            results.append(ensure_types(chr(l)))
             results.append(label)
         results.append(b'\0')
         return b''.join(results)
@@ -327,7 +327,7 @@ class DNSResolver(EventEmitter):
     def parse_name(self, data, offset):
         p = offset
         labels = []
-        l = ord(data[p])
+        l = data[p] if is_py3 else ord(data[p])
         while l > 0:
             if (l & (128 + 64)) == (128 + 64):
                 # pointer
@@ -341,7 +341,7 @@ class DNSResolver(EventEmitter):
             else:
                 labels.append(data[p + 1:p + 1 + l])
                 p += 1 + l
-            l = ord(data[p])
+            l = data[p] if is_py3 else ord(data[p])
         return p - offset + 1, b'.'.join(labels)
 
     def parse_record(self, data, offset, question=False):
@@ -431,7 +431,10 @@ class DNSResolver(EventEmitter):
             if '.' in addr:  # a v4 addr
                 v4addr = addr[addr.rindex(':') + 1:]
                 v4addr = socket.inet_aton(v4addr)
-                v4addr = map(lambda x: ('%02X' % ord(x)), v4addr)
+                if is_py3:
+                    v4addr = list(map(lambda x: ('%02X' % x), ensure_types(v4addr)))
+                else:
+                    v4addr = map(lambda x: ('%02X' % ord(x)), ensure_types(v4addr))
                 v4addr.insert(2, ':')
                 newaddr = addr[:addr.rindex(':') + 1] + ''.join(v4addr)
                 return self.inet_pton(family, newaddr)
@@ -447,7 +450,9 @@ class DNSResolver(EventEmitter):
                         else:
                             break
                     break
-            return b''.join((chr(i // 256) + chr(i % 256)) for i in dbyts)
+            if is_py3:
+                return b''.join([(chr(i // 256) + chr(i % 256)).encode("utf-8") for i in dbyts])
+            return b''.join([(chr(i // 256) + chr(i % 256)) for i in dbyts])
         else:
             raise RuntimeError("What family?")
 

@@ -5,41 +5,42 @@ import time
 import heapq
 import logging
 from collections import defaultdict, deque
+from .utils import is_int, iter_range
 
 ''' You can only use instance(). Don't create a Loop() '''
 
-_ssloop_cls = None
-_ssloop = None
+_ioloop_cls = None
+_ioloop = None
 
 
 def instance():
-    global _ssloop
-    if _ssloop is not None:
-        return _ssloop
+    global _ioloop
+    if _ioloop is not None:
+        return _ioloop
     else:
         init()
-        _ssloop = _ssloop_cls()
-        return _ssloop
+        _ioloop = _ioloop_cls()
+        return _ioloop
 
 def current():
-    return _ssloop
+    return _ioloop
 
 
 def init():
-    global _ssloop_cls
+    global _ioloop_cls
 
     if 'epoll' in select.__dict__:
-        import impl.epoll_loop
+        from .impl import epoll_loop
         logging.debug('using epoll')
-        _ssloop_cls = impl.epoll_loop.EpollLoop
+        _ioloop_cls = epoll_loop.EpollLoop
     elif 'kqueue' in select.__dict__:
-        import impl.kqueue_loop
+        from .impl import kqueue_loop
         logging.debug('using kqueue')
-        _ssloop_cls = impl.kqueue_loop.KqueueLoop
+        _ioloop_cls = kqueue_loop.KqueueLoop
     else:
-        import impl.select_loop
+        from .impl import select_loop
         logging.debug('using select')
-        _ssloop_cls = impl.select_loop.SelectLoop
+        _ioloop_cls = select_loop.SelectLoop
 
 
 # these values are defined as the same as poll
@@ -58,15 +59,34 @@ class TimeoutHandler(object):
         self.deadline = deadline
         self.args=args
         self.kwargs=kwargs
+        self.canceled = False
 
     def __cmp__(self, other):
-        return cmp(self.deadline, other.deadline)
+        return (self.deadline > other.deadline) - (self.deadline < other.deadline)
+
+    def __eq__(self, other):
+        return self.deadline == other.deadline
+
+    def __gt__(self, other):
+        return self.deadline > other.deadline
+
+    def __lt__(self, other):
+        return self.deadline < other.deadline
+
+    def __ge__(self, other):
+        return self.deadline >= other.deadline
+
+    def __le__(self, other):
+        return self.deadline <= other.deadline
+
+    def __ne__(self, other):
+        return self.deadline != other.deadline
 
     def __call__(self):
         self.callback(*self.args, **self.kwargs)
 
 
-class SSLoop(object):
+class IOLoop(object):
     def __init__(self):
         self._handlers = deque()
         self._run_handlers = deque()
@@ -87,7 +107,7 @@ class SSLoop(object):
         raise NotImplementedError()
 
     def add_fd(self, fd, mode, callback):
-        if not isinstance(fd, (int, long)):
+        if not is_int(fd):
             try:
                 fd = fd.fileno()
             except:
@@ -104,7 +124,7 @@ class SSLoop(object):
         return True
 
     def update_fd(self, fd, mode, callback):
-        if not isinstance(fd, (int, long)):
+        if not is_int(fd):
             try:
                 fd = fd.fileno()
             except:
@@ -127,7 +147,7 @@ class SSLoop(object):
         return True
 
     def remove_fd(self, fd, callback):
-        if not isinstance(fd, (int, long)):
+        if not is_int(fd):
             try:
                 fd = fd.fileno()
             except:
@@ -158,14 +178,16 @@ class SSLoop(object):
                 cur_time = time.time()
                 while self._timeout_handlers:
                     handler = self._timeout_handlers[0]
-                    if handler.deadline <= cur_time:
+                    if handler.canceled:
+                        heapq.heappop(self._timeout_handlers)
+                    elif handler.deadline <= cur_time:
                         heapq.heappop(self._timeout_handlers)
                         try:
-                            handler()
-                        except Exception, e:
-                            logging.exception("loop callback error:%s", e)
+                            handler.callback(*handler.args, **handler.kwargs)
+                        except Exception as e:
+                            logging.exception("loop callback timeout error:%s", e)
                     else:
-                        timeout = self._timeout_handlers[0].deadline - time.time()
+                        timeout = min(self._timeout_handlers[0].deadline - time.time(), 1)
                         break
 
             if self._handlers:
@@ -178,16 +200,16 @@ class SSLoop(object):
                     if hmode & mode != 0:
                         try:
                             hcallback()
-                        except Exception, e:
+                        except Exception as e:
                             logging.exception("loop callback error:%s", e)
 
             # call handlers without fd
             self._handlers, self._run_handlers = self._run_handlers, self._handlers
-            for _ in xrange(len(self._run_handlers)):
+            for _ in iter_range(len(self._run_handlers)):
                 callback, args, kwargs = self._run_handlers.popleft()
                 try:
                     callback(*args, **kwargs)
-                except Exception, e:
+                except Exception  as e:
                     logging.exception("loop callback error:%s", e)
 
     def stop(self):
@@ -202,4 +224,7 @@ class SSLoop(object):
         return handler
 
     def cancel_timeout(self, handler):
-        self._timeout_handlers.remove(handler)
+        if handler.__class__ == TimeoutHandler:
+            handler.canceled = True
+        else:
+            self._timeout_handlers.remove(handler)

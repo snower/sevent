@@ -5,8 +5,9 @@
 import os
 import time
 from collections import deque
-from event import EventEmitter
-from loop import current
+from .event import EventEmitter
+from .loop import current
+from .utils import ensure_unicode, is_py3
 
 try:
     MAX_BUFFER_SIZE = int(os.environ.get("SEVENT_MAX_BUFFER_SIZE", 4 * 1024 * 1024))
@@ -18,7 +19,7 @@ class Buffer(EventEmitter):
         super(Buffer, self).__init__()
 
         self._loop = current()
-        self._buffer = ''
+        self._buffer = b''
         self._buffer_len = 0
         self._buffers = deque()
         self._len = 0
@@ -34,7 +35,7 @@ class Buffer(EventEmitter):
             if self._index < self._buffer_len:
                 self._buffers.appendleft(self._buffer[self._index:])
             if len(self._buffers) > 1:
-                data = "".join(self._buffers)
+                data = b"".join(self._buffers)
                 self._buffers.clear()
             else:
                 data = self._buffers.popleft()
@@ -53,6 +54,7 @@ class Buffer(EventEmitter):
             self._full = True
             self._drain_time = time.time()
             self.emit("drain", self)
+        return self
 
     def read(self, size = -1):
         if self._len <= 0:
@@ -122,11 +124,18 @@ class Buffer(EventEmitter):
             self._full = False
             self.emit("regain", self)
 
+    def memoryview(self, start = 0, end = None):
+        if end:
+            return memoryview(self._buffer)[self._index + start: self._index + end]
+        return memoryview(self._buffer)[self._index + start:]
+
     def __len__(self):
         return self._len
 
     def __str__(self):
-        return self._buffer[self._index:] + "".join(self._buffers)
+        if is_py3:
+            return ensure_unicode(self._buffer[self._index:] + b"".join(self._buffers))
+        return self._buffer[self._index:] + b"".join(self._buffers)
 
     def __nonzero__(self):
         return self._len > 0

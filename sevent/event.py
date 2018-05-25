@@ -35,7 +35,7 @@ class EventEmitter(object):
         for cb in self._events[event_name]:
             try:
                 cb(*args, **kwargs)
-            except Exception,e:
+            except Exception as e:
                 logging.exception('error when calling callback:%s',e)
 
         callbacks = self._events_once[event_name]
@@ -45,5 +45,5 @@ class EventEmitter(object):
                 cb = callbacks.pop()
                 try:
                     cb(*args, **kwargs)
-                except Exception,e:
+                except Exception as e:
                     logging.exception('error when calling callback:%s',e)

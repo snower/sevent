@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
+
 import select
-from ..loop import SSLoop
+from ..loop import IOLoop
 
 
-class EpollLoop(SSLoop):
+class EpollLoop(IOLoop):
     def __init__(self):
         super(EpollLoop, self).__init__()
         self._epoll = select.epoll()

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
+
 import select
 from collections import defaultdict
-from ..loop import SSLoop,MODE_NULL,MODE_IN,MODE_OUT,MODE_ERR
+from ..loop import IOLoop, MODE_NULL, MODE_IN, MODE_OUT, MODE_ERR
 
 
-class SelectLoop(SSLoop):
+class SelectLoop(IOLoop):
     def __init__(self):
         super(SelectLoop, self).__init__()
         self._r_list = set()
@@ -14,7 +15,7 @@ class SelectLoop(SSLoop):
     def _poll(self, timeout):
         try:
             r, w, x = select.select(self._r_list, self._w_list, self._x_list,timeout)
-        except Exception,e:
+        except Exception:
             return []
         results = defaultdict(lambda: MODE_NULL)
         for p in [(r, MODE_IN), (w, MODE_OUT), (x, MODE_ERR)]:

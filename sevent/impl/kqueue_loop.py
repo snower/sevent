@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
+
+import os
 import select
-from ..loop import SSLoop,MODE_NULL,MODE_IN,MODE_OUT
 from collections import defaultdict
+from ..loop import IOLoop, MODE_NULL, MODE_IN, MODE_OUT
+from ..utils import is_py3
 
-MAX_EVENTS = 1024
+MAX_EVENTS = int(os.environ.get("SEVENT_KQUEUE_MAX_EVENTS", 1024))
 
-class KqueueLoop(SSLoop):
+class KqueueLoop(IOLoop):
     def __init__(self):
         super(KqueueLoop, self).__init__()
         self._kqueue = select.kqueue()
@@ -31,7 +34,7 @@ class KqueueLoop(SSLoop):
                 results[fd] |= MODE_IN
             elif e.filter == select.KQ_FILTER_WRITE:
                 results[fd] |= MODE_OUT
-        return results.iteritems()
+        return results.items() if is_py3 else results.iteritems()
 
     def _add_fd(self, fd, mode):
         self._fds[fd] = mode

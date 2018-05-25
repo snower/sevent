@@ -4,10 +4,10 @@ import logging
 from collections import deque
 import socket
 import errno
-import event
-from loop import instance, MODE_IN, MODE_OUT
-from buffer import Buffer
-from dns import DNSResolver
+from . import event
+from .loop import instance, MODE_IN, MODE_OUT
+from .buffer import Buffer
+from .dns import DNSResolver
 
 STATE_INITIALIZED = 0x01
 STATE_CONNECTING = 0x02
@@ -54,6 +54,24 @@ class Socket(event.EventEmitter):
     def __del__(self):
         self.close()
 
+    def on_connect(self, callback):
+        self.on("connect", callback)
+
+    def on_data(self, callback):
+        self.on("data", callback)
+
+    def on_end(self, callback):
+        self.on("end", callback)
+
+    def on_close(self, callback):
+        self.on("close", callback)
+
+    def on_error(self, callback):
+        self.on("error", callback)
+
+    def on_drain(self, callback):
+        self.on("drain", callback)
+
     def end(self):
         if self._state not in (STATE_INITIALIZED, STATE_CONNECTING, STATE_STREAMING):return
         if self._state in (STATE_INITIALIZED, STATE_CONNECTING):
@@ -80,7 +98,7 @@ class Socket(event.EventEmitter):
                 self._write_handler = False
             try:
                 self._socket.close()
-            except Exception,e:
+            except Exception as e:
                 logging.error("socket close socket error:%s",e)
 
         self._state = STATE_CLOSED
@@ -92,7 +110,7 @@ class Socket(event.EventEmitter):
         self._loop.async(on_close)
 
     def _error(self, error):
-        self._loop.async(self.emit,'error', self, error)
+        self._loop.async(self.emit, 'error', self, error)
         self.close()
         logging.error("socket error:%s",error)
 
@@ -191,16 +209,33 @@ class Socket(event.EventEmitter):
 
     def _write(self):
         while self._wbuffers:
-            data = self._wbuffers.popleft()
+            data = self._wbuffers[0]
             try:
                 if data.__class__ == Buffer:
-                    data = data.read(-1)
-                    if not data:
+                    if data._len <= 0:
+                        self._wbuffers.popleft()
                         continue
-                r = self._socket.send(data)
-                if r < len(data):
-                    self._wbuffers.appendleft(data[r:])
-                    return False
+
+                    r = self._socket.send(memoryview(data._buffer)[data._index:])
+                    data._index += r
+                    data._len -= r
+
+                    if data._index >= data._buffer_len:
+                        data._index, data._buffer_len = 0, 0
+                    else:
+                        return False
+
+                    if data._len > 0:
+                        data._buffer = data._buffers.popleft()
+                        data._buffer_len = len(data._buffer)
+                    else:
+                        self._wbuffers.popleft()
+                else:
+                    self._wbuffers.popleft()
+                    r = self._socket.send(data)
+                    if r < len(data):
+                        self._wbuffers.appendleft(data[r:])
+                        return False
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                     self._wbuffers.appendleft(data)
@@ -223,7 +258,7 @@ class Socket(event.EventEmitter):
         self._wbuffers.append(data)
         if not self._write_handler:
             if self._write():
-                self._loop.async(self.emit,'drain', self)
+                self._loop.async(self.emit, 'drain', self)
                 return True
             self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
             if not self._write_handler:
@@ -238,9 +273,19 @@ class Server(event.EventEmitter):
         self._dns_resolver = dns_resolver or DNSResolver.default()
         self._socket = None
         self._state = STATE_INITIALIZED
+        self._accept_handler = False
 
     def __del__(self):
         self.close()
+
+    def on_connection(self, callback):
+        self.on("connection", callback)
+
+    def on_close(self, callback):
+        self.on("close", callback)
+
+    def on_error(self, callback):
+        self.on("error", callback)
 
     def listen(self, address, backlog=128):
         if self._state != STATE_INITIALIZED:
@@ -248,7 +293,7 @@ class Server(event.EventEmitter):
 
         def do_listen(hostname, ip):
             if not ip:
-                return self._error(Exception('can not resolve hostname %s' % address))
+                return self._error(Exception('can not resolve hostname %s:%s' % address))
 
             addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
             if addrinfo:
@@ -274,9 +319,9 @@ class Server(event.EventEmitter):
         self._loop.async(self.emit, "connection", self, socket)
 
     def _error(self, error):
-        self._loop.async(self.emit,'error', self, error)
+        self._loop.async(self.emit, 'error', self, error)
         self.close()
-        logging.error("server error:%s",error)
+        logging.error("server error:%s", error)
 
     def close(self):
         if self._state in (STATE_INITIALIZED, STATE_LISTENING):
@@ -286,8 +331,8 @@ class Server(event.EventEmitter):
             if self._socket is not None:
                 try:
                     self._socket.close()
-                except Exception,e:
-                    logging.error("server close socket error:%s",e)
+                except Exception as e:
+                    logging.error("server close socket error:%s", e)
             self._state = STATE_CLOSED
             def on_close():
                 self.emit('close', self)
