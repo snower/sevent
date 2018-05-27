@@ -31,6 +31,18 @@ class Buffer(EventEmitter):
         self._drain_time = time.time()
         self._regain_time = time.time()
 
+    def on_drain(self, callback):
+        self.on("drain", callback)
+
+    def on_regain(self, callback):
+        self.on("regain", callback)
+
+    def once_drain(self, callback):
+        self.once("drain", callback)
+
+    def once_regain(self, callback):
+        self.once("regain", callback)
+
     def join(self):
         if self._buffer_len - self._index < self._len:
             if self._index < self._buffer_len:

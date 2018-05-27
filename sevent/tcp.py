@@ -72,6 +72,24 @@ class Socket(event.EventEmitter):
     def on_drain(self, callback):
         self.on("drain", callback)
 
+    def once_connect(self, callback):
+        self.once("connect", callback)
+
+    def once_data(self, callback):
+        self.once("data", callback)
+
+    def once_end(self, callback):
+        self.once("end", callback)
+
+    def once_close(self, callback):
+        self.once("close", callback)
+
+    def once_error(self, callback):
+        self.once("error", callback)
+
+    def once_drain(self, callback):
+        self.once("drain", callback)
+
     def end(self):
         if self._state not in (STATE_INITIALIZED, STATE_CONNECTING, STATE_STREAMING):return
         if self._state in (STATE_INITIALIZED, STATE_CONNECTING):
@@ -175,8 +193,10 @@ class Socket(event.EventEmitter):
                 self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
 
     def _read_cb(self):
-        if self._state in (STATE_STREAMING, STATE_CLOSING):
-            self._read()
+        if self._state not in (STATE_STREAMING, STATE_CLOSING):
+            return
+
+        self._read()
 
     def _read(self):
         data = False
@@ -184,7 +204,7 @@ class Socket(event.EventEmitter):
             try:
                 data = self._socket.recv(RECV_BUFSIZE)
                 if not data:
-                    if self._rbuffers:
+                    if self._rbuffers._len:
                         self._loop.async(self.emit, 'data', self, self._rbuffers)
                     self._loop.async(self.emit, 'end', self)
                     if self._state in (STATE_STREAMING, STATE_CLOSING):
@@ -227,7 +247,7 @@ class Socket(event.EventEmitter):
                             data._index, data._buffer_len = 0, 0
                             data._writting = False
                             self._wbuffers.popleft()
-                            continue
+                        continue
                     else:
                         return False
                 except socket.error as e:

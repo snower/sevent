@@ -109,6 +109,12 @@ class DNSResolver(EventEmitter):
         self._resolve_timeout = resolve_timeout if resolve_timeout else (len(self._servers) * resend_timeout + 4)
         self._resend_timeout = resend_timeout
 
+    def on_resolve(self, callback):
+        self.on("resolve", callback)
+
+    def once_resolve(self, callback):
+        self.once("resolve", callback)
+
     def create_socket(self):
         from .udp import Socket, Socket6
         self._socket = Socket(self._loop)

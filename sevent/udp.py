@@ -73,6 +73,18 @@ class Socket(EventEmitter):
     def on_drain(self, callback):
         self.on("drain", callback)
 
+    def once_data(self, callback):
+        self.once("data", callback)
+
+    def once_close(self, callback):
+        self.once("close", callback)
+
+    def once_error(self, callback):
+        self.once("error", callback)
+
+    def once_drain(self, callback):
+        self.once("drain", callback)
+
     def end(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             if not self._wbuffers:
@@ -149,35 +161,32 @@ class Socket(EventEmitter):
         while self._wbuffers:
             address, data = self._wbuffers[0]
             if data.__class__ == Buffer:
-                while True:
-                    try:
-                        if data._index > 0:
-                            r = self._socket.sendto(memoryview(data._buffer)[data._index:], address)
-                        else:
-                            r = self._socket.sendto(data._buffer, address)
-                        data._index += r
-                        data._len -= r
-
-                        if data._index >= data._buffer_len:
-                            if data._len > 0:
-                                data._buffer = data._buffers.popleft()
-                                data._index, data._buffer_len = 0, len(data._buffer)
-                            else:
-                                data._index, data._buffer_len = 0, 0
-                                data._writting = False
-                                self._wbuffers.popleft()
-                                break
-                        else:
-                            return False
-                    except socket.error as e:
-                        if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                            self._wbuffers.appendleft((address, data))
-                        else:
-                            self._error(e)
-                        return False
-            else:
-                self._wbuffers.popleft()
                 try:
+                    if data._index > 0:
+                        r = self._socket.sendto(memoryview(data._buffer)[data._index:], address)
+                    else:
+                        r = self._socket.sendto(data._buffer, address)
+                    data._index += r
+                    data._len -= r
+
+                    if data._index >= data._buffer_len:
+                        if data._len > 0:
+                            data._buffer = data._buffers.popleft()
+                            data._index, data._buffer_len = 0, len(data._buffer)
+                        else:
+                            data._index, data._buffer_len = 0, 0
+                            data._writting = False
+                            self._wbuffers.popleft()
+                        continue
+                    else:
+                        return False
+                except socket.error as e:
+                    if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                        self._error(e)
+                    return False
+            else:
+                try:
+                    self._wbuffers.popleft()
                     r = self._socket.sendto(data, address)
                     if r < len(data):
                         self._wbuffers.appendleft((address, data[r:]))
