@@ -34,6 +34,7 @@ class Socket(event.EventEmitter):
         self._address = address
         self._dns_resolver = dns_resolver or DNSResolver.default()
         self._connect_handler = False
+        self._connect_timeout = 5
         self._read_handler = False
         self._write_handler = False
         self._rbuffers = Buffer(max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE)
@@ -164,6 +165,8 @@ class Socket(event.EventEmitter):
         if self._state != STATE_INITIALIZED:
             return
 
+        self._connect_timeout = timeout
+
         def do_connect(hostname, ip):
             if self._state == STATE_CLOSED:
                 return
@@ -207,10 +210,11 @@ class Socket(event.EventEmitter):
         def on_timeout_cb():
             if self._state == STATE_CONNECTING:
                 if not self._is_enable_fast_open:
-                    self._error(Exception("connect time out %s %s" % (address, self._address)))
+                    self._error(Exception("connect time out %s" % self._address))
 
         self._dns_resolver.resolve(address[0], do_connect)
-        self._loop.timeout(timeout, on_timeout_cb)
+        if not self._is_enable_fast_open:
+            self._loop.timeout(timeout, on_timeout_cb)
         self._state = STATE_CONNECTING
 
     def drain(self):
@@ -277,6 +281,13 @@ class Socket(event.EventEmitter):
 
     def _connect_and_write(self):
         if self._wbuffers:
+            def on_timeout_cb():
+                if self._state == STATE_CONNECTING:
+                    if self._is_enable_fast_open:
+                        self._error(Exception("connect time out %s" % self._address))
+
+            self._loop.timeout(self._connect_timeout, on_timeout_cb)
+
             data = self._wbuffers[0]
             if data.__class__ == Buffer:
                 try:
