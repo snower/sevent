@@ -176,14 +176,14 @@ class Socket(event.EventEmitter):
         def on_timeout_cb():
             if self._state == STATE_CONNECTING:
                 if not self._is_enable_fast_open:
-                    self._error(Exception("connect time out %s" % self._address))
+                    self._error(Exception("connect time out %s" % str(address)))
 
         def do_connect(hostname, ip):
             if self._state == STATE_CLOSED:
                 return
 
             if not ip:
-                return self._error(Exception('can not resolve hostname %s',address))
+                return self._error(Exception('can not resolve hostname %s' % str(address)))
 
             try:
                 addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
@@ -209,11 +209,11 @@ class Socket(event.EventEmitter):
                     else:
                         self._socket.connect(self._address)
                 else:
-                    self._error(Exception('can not resolve hostname %s',address))
+                    self._error(Exception('can not resolve hostname %s' % str(address)))
                     return
             except socket.error as e:
                 if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
-                    self._error(Exception("connect error %s %s %s" % (address, self._address, e)))
+                    self._error(Exception("connect error %s %s" % (str(address), e)))
                     return
 
             if not self._is_enable_fast_open:
@@ -290,7 +290,7 @@ class Socket(event.EventEmitter):
             def on_timeout_cb():
                 if self._state == STATE_CONNECTING:
                     if self._is_enable_fast_open:
-                        self._error(Exception("connect time out %s" % self._address))
+                        self._error(Exception("connect time out %s:%s" % (self._address[0], self._address[1])))
 
             if self._connect_timeout_handler:
                 self._loop.cancel_timeout(self._connect_timeout_handler)
@@ -467,7 +467,7 @@ class Server(event.EventEmitter):
 
         def do_listen(hostname, ip):
             if not ip:
-                return self._error(Exception('can not resolve hostname %s:%s' % address))
+                return self._error(Exception('can not resolve hostname %s' % str(address)))
 
             addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
             if addrinfo:
@@ -494,7 +494,7 @@ class Server(event.EventEmitter):
                 self._accept_handler = self._loop.add_fd(self._socket, MODE_IN, self._accept_cb)
                 self._socket.listen(backlog)
             else:
-                self._error(Exception('can not resolve hostname %s' % address))
+                self._error(Exception('can not resolve hostname %s' % str(address)))
 
         self._dns_resolver.resolve(address[0], do_listen)
         self._state = STATE_LISTENING
@@ -510,7 +510,7 @@ class Server(event.EventEmitter):
     def _error(self, error):
         self._loop.async(self.emit, 'error', self, error)
         self.close()
-        logging.error("server error:%s", error)
+        logging.error("server error: %s", error)
 
     def close(self):
         if self._state in (STATE_INITIALIZED, STATE_LISTENING):
@@ -521,7 +521,7 @@ class Server(event.EventEmitter):
                 try:
                     self._socket.close()
                 except Exception as e:
-                    logging.error("server close socket error:%s", e)
+                    logging.error("server close socket error: %s", e)
             self._state = STATE_CLOSED
             def on_close():
                 self.emit('close', self)
