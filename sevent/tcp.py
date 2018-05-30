@@ -282,21 +282,28 @@ class Socket(event.EventEmitter):
             data = self._wbuffers[0]
             if data.__class__ == Buffer:
                 try:
-                    if data._index > 0:
-                        r = self._socket.sendto(memoryview(data._buffer)[data._index:], MSG_FASTOPEN, self.address)
-                    else:
+                    if data._index == 0 and data._buffer_len == data._len:
                         r = self._socket.sendto(data._buffer, MSG_FASTOPEN, self.address)
-                    data._index += r
-                    data._len -= r
+                        data._index += r
+                        data._len -= r
 
-                    if data._index >= data._buffer_len:
-                        if data._len > 0:
-                            data._buffer = data._buffers.popleft()
-                            data._index, data._buffer_len = 0, len(data._buffer)
-                        else:
-                            data._index, data._buffer_len = 0, 0
-                            data._writting = False
+                        if data._index >= data._buffer_len:
+                            if data._len > 0:
+                                data._buffer = data._buffers.popleft()
+                                data._index, data._buffer_len = 0, len(data._buffer)
+                            else:
+                                data._index, data._buffer_len = 0, 0
+                                data._writting = False
+                                self._wbuffers.popleft()
+                    else:
+                        buf_len = data._len
+                        buf = data.read(-1)
+                        r = self._socket.sendto(buf, MSG_FASTOPEN, self.address)
+                        if r >= buf_len:
                             self._wbuffers.popleft()
+                        else:
+                            data.write(buf[r:])
+
                     self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
                 except socket.error as e:
                     if e.args[0] == errno.EINPROGRESS:
@@ -308,7 +315,8 @@ class Socket(event.EventEmitter):
                     return False
             else:
                 try:
-                    self._wbuffers.popleft()
+                    data = b"".join(self._wbuffers)
+                    self._wbuffers.clear()
                     r = self._socket.sendto(data, MSG_FASTOPEN, self.address)
                     if r < len(data):
                         self._wbuffers.appendleft(data[r:])
