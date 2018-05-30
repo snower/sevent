@@ -189,10 +189,8 @@ class Socket(event.EventEmitter):
                             self._is_enable_fast_open = False
 
                     if self._is_enable_fast_open:
-                        if self._wbuffers and not self._write_handler:
-                            self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
-                            if not self._write_handler:
-                                self._error(Exception("write data add fd error"))
+                        if self._wbuffers and not self._connect_cb:
+                            self._loop.async(self._connect_and_write)
                     else:
                         self._socket.connect(self._address)
                 else:
@@ -389,7 +387,7 @@ class Socket(event.EventEmitter):
         if self._state != STATE_STREAMING:
             if self._state == STATE_CONNECTING and self._is_enable_fast_open:
                 self._wbuffers.append(data)
-                if self._is_resolve and not self._write_handler:
+                if self._is_resolve and not self._connect_handler:
                     return self._connect_and_write()
                 return False
             assert self._state != STATE_STREAMING, "not connected"
