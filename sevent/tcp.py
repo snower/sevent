@@ -9,6 +9,8 @@ from .loop import instance, MODE_IN, MODE_OUT
 from .buffer import Buffer
 from .dns import DNSResolver
 
+MSG_FASTOPEN = 0x20000000
+
 STATE_INITIALIZED = 0x01
 STATE_CONNECTING = 0x02
 STATE_STREAMING = 0x04
@@ -37,6 +39,8 @@ class Socket(event.EventEmitter):
         self._rbuffers = Buffer(max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE)
         self._wbuffers = deque()
         self._state = STATE_INITIALIZED
+        self._is_enable_fast_open = False
+        self._is_resolve = False
 
         if self._socket:
             self._state = STATE_STREAMING
@@ -89,6 +93,13 @@ class Socket(event.EventEmitter):
 
     def once_drain(self, callback):
         self.once("drain", callback)
+
+    def enable_fast_open(self):
+        self._is_enable_fast_open = True
+
+    @property
+    def is_enable_fast_open(self):
+        return self._is_enable_fast_open
 
     def end(self):
         if self._state not in (STATE_INITIALIZED, STATE_CONNECTING, STATE_STREAMING):return
@@ -144,6 +155,11 @@ class Socket(event.EventEmitter):
         self._rbuffers.on("regain", lambda _ : self.regain())
         self._loop.async(self.emit, 'connect', self)
 
+        if self._wbuffers and not self._write_handler:
+            self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+            if not self._write_handler:
+                self._error(Exception("write data add fd error"))
+
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:
             return
@@ -163,7 +179,22 @@ class Socket(event.EventEmitter):
                     self._socket = socket.socket(addr[0], addr[1], addr[2])
                     self._socket.setblocking(False)
                     self._address = addr[4]
-                    self._socket.connect(addr[4])
+                    self._is_resolve = True
+
+                    if self._is_enable_fast_open:
+                        try:
+                            self._socket.setsockopt(socket.SOL_TCP, 23, 5)
+                        except Exception as e:
+                            logging.warning('fast open error: %s', e)
+                            self._is_enable_fast_open = False
+
+                    if self._is_enable_fast_open:
+                        if self._wbuffers and not self._write_handler:
+                            self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+                            if not self._write_handler:
+                                self._error(Exception("write data add fd error"))
+                    else:
+                        self._socket.connect(self._address)
                 else:
                     self._error(Exception('can not resolve hostname %s',address))
                     return
@@ -171,11 +202,14 @@ class Socket(event.EventEmitter):
                 if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
                     self._error(Exception("connect error %s %s %s" % (address, self._address, e)))
                     return
-            self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+
+            if not self._is_enable_fast_open:
+                self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
             
         def on_timeout_cb():
             if self._state == STATE_CONNECTING:
-                self._error(Exception("connect time out %s %s" % (address, self._address)))
+                if not self._is_enable_fast_open:
+                    self._error(Exception("connect time out %s %s" % (address, self._address)))
 
         self._dns_resolver.resolve(address[0], do_connect)
         self._loop.timeout(timeout, on_timeout_cb)
@@ -194,38 +228,101 @@ class Socket(event.EventEmitter):
 
     def _read_cb(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
+            if self._state == STATE_CONNECTING:
+                if self._read():
+                    self._connect_cb()
+                    self._loop.async(self.emit, 'data', self, self._rbuffers)
+                else:
+                    if self._rbuffers._len:
+                        self._connect_cb()
+                        self._loop.async(self.emit, 'data', self, self._rbuffers)
+                    self._loop.async(self.emit, 'end', self)
+                    self.close()
             return
 
-        self._read()
+        if self._read():
+            self._loop.async(self.emit, 'data', self, self._rbuffers)
+        else:
+            if self._rbuffers._len:
+                self._loop.async(self.emit, 'data', self, self._rbuffers)
+            self._loop.async(self.emit, 'end', self)
+            if self._state in (STATE_STREAMING, STATE_CLOSING):
+                self.close()
 
     def _read(self):
-        data = False
+        last_data_len = self._rbuffers._len
         while self._read_handler:
             try:
                 data = self._socket.recv(RECV_BUFSIZE)
                 if not data:
-                    if self._rbuffers._len:
-                        self._loop.async(self.emit, 'data', self, self._rbuffers)
-                    self._loop.async(self.emit, 'end', self)
-                    if self._state in (STATE_STREAMING, STATE_CLOSING):
-                        self.close()
-                    return
+                    return False
                 self._rbuffers.write(data)
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                     break
                 else:
                     self._error(e)
-                    return
+                    return False
 
-        if data:
-            self._loop.async(self.emit, 'data', self, self._rbuffers)
+        return last_data_len < self._rbuffers._len
 
     def _write_cb(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
+            if self._state == STATE_CONNECTING:
+                self._connect_cb()
+                if self._wbuffers:
+                    if self._write():
+                        self._loop.async(self.emit, 'drain', self)
             return
         if self._write():
             self._loop.async(self.emit, 'drain', self)
+
+    def _connect_and_write(self):
+        if self._wbuffers:
+            data = self._wbuffers[0]
+            if data.__class__ == Buffer:
+                try:
+                    if data._index > 0:
+                        r = self._socket.sendto(memoryview(data._buffer)[data._index:], MSG_FASTOPEN, self.address)
+                    else:
+                        r = self._socket.sendto(data._buffer, MSG_FASTOPEN, self.address)
+                    data._index += r
+                    data._len -= r
+
+                    if data._index >= data._buffer_len:
+                        if data._len > 0:
+                            data._buffer = data._buffers.popleft()
+                            data._index, data._buffer_len = 0, len(data._buffer)
+                        else:
+                            data._index, data._buffer_len = 0, 0
+                            data._writting = False
+                            self._wbuffers.popleft()
+                    self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                except socket.error as e:
+                    if e.args[0] == errno.EINPROGRESS:
+                        self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                        return False
+                    elif e.args[0] == errno.ENOTCONN:
+                        self._is_enable_fast_open = False
+                    self._error(e)
+                    return False
+            else:
+                try:
+                    self._wbuffers.popleft()
+                    r = self._socket.sendto(data, MSG_FASTOPEN, self.address)
+                    if r < len(data):
+                        self._wbuffers.appendleft(data[r:])
+                    self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                except socket.error as e:
+                    if e.args[0] == errno.EINPROGRESS:
+                        self._wbuffers.appendleft(data)
+                        self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                        return False
+                    elif e.args[0] == errno.ENOTCONN:
+                        logging.error('fast open not supported on this OS')
+                        self._is_enable_fast_open = False
+                    self._error(e)
+                    return False
 
     def _write(self):
         while self._wbuffers:
@@ -276,12 +373,18 @@ class Socket(event.EventEmitter):
         return True
 
     def write(self, data):
-        if self._state != STATE_STREAMING:
-            return False
         if data.__class__ == Buffer:
             if data._writting:
                 return False
             data._writting = True
+
+        if self._state != STATE_STREAMING:
+            if self._state == STATE_CONNECTING and self._is_enable_fast_open:
+                self._wbuffers.append(data)
+                if self._is_resolve and not self._write_handler:
+                    return self._connect_and_write()
+                return False
+            assert self._state != STATE_STREAMING, "not connected"
 
         self._wbuffers.append(data)
         if not self._write_handler:
@@ -302,6 +405,23 @@ class Server(event.EventEmitter):
         self._socket = None
         self._state = STATE_INITIALIZED
         self._accept_handler = False
+        self._is_enable_fast_open = False
+        self._is_reuseaddr = False
+        self._is_resolve = False
+
+    def enable_fast_open(self):
+        self._is_enable_fast_open = True
+
+    def enable_reuseaddr(self):
+        self._is_reuseaddr = True
+
+    @property
+    def is_enable_fast_open(self):
+        return self._is_enable_fast_open
+
+    @property
+    def is_reuseaddr(self):
+        return self._is_reuseaddr
 
     def __del__(self):
         self.close()
@@ -328,7 +448,22 @@ class Server(event.EventEmitter):
                 addr = addrinfo[0]
                 self._socket = socket.socket(addr[0], addr[1], addr[2])
                 self._socket.setblocking(False)
-                self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self._is_resolve = True
+
+                if self._is_reuseaddr:
+                    try:
+                        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    except Exception as e:
+                        logging.warning('reuseaddr error: %s', e)
+                        self._is_reuseaddr = False
+
+                if self._is_enable_fast_open:
+                    try:
+                        self._socket.setsockopt(socket.SOL_TCP, 23, 5)
+                    except Exception as e:
+                        logging.warning('fast open error: %s', e)
+                        self._is_enable_fast_open = False
+
                 self._socket.bind(addr[4])
                 self._accept_handler = self._loop.add_fd(self._socket, MODE_IN, self._accept_cb)
                 self._socket.listen(backlog)
