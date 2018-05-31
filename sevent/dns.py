@@ -420,7 +420,7 @@ class DNSResolver(EventEmitter):
                 response.answers = ans
                 return response
         except Exception as e:
-            logging.exception("parse dns rsponse error:%s", e)
+            logging.exception("parse dns rsponse error: %s", e)
             return None
 
     def is_valid_hostname(self, hostname):

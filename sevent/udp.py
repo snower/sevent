@@ -113,7 +113,7 @@ class Socket(EventEmitter):
 
     def _error(self, error):
         self._loop.async(self.emit, 'error', self, error)
-        logging.error("socket error:%s", error)
+        logging.error("socket error: %s", error)
         self.close()
 
     def drain(self):
@@ -232,7 +232,7 @@ class Socket(EventEmitter):
         if address[0] not in self._address_cache:
             def resolve_callback(hostname, ip):
                 if not ip:
-                    return self._error(Exception('can not resolve hostname %s' % address))
+                    return self._error(Exception('can not resolve hostname %s' % str(address)))
                 self._address_cache[hostname] = ip
                 do_write((ip, address[1]))
             self._dns_resolver.resolve(address[0], resolve_callback)

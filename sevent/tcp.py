@@ -43,6 +43,7 @@ class Socket(event.EventEmitter):
         self._wbuffers = deque()
         self._state = STATE_INITIALIZED
         self._is_enable_fast_open = False
+        self._is_enable_nodelay = False
         self._is_resolve = False
 
         if self._socket:
@@ -103,6 +104,20 @@ class Socket(event.EventEmitter):
     @property
     def is_enable_fast_open(self):
         return self._is_enable_fast_open
+
+    def enable_nodelay(self):
+        if self._socket:
+            try:
+                self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except Exception as e:
+                logging.warning('nodela error: %s', e)
+                self._is_enable_nodelay = False
+                return
+        self._is_enable_nodelay = True
+
+    @property
+    def is_enable_nodelay(self):
+        return self._is_enable_nodelay
 
     def end(self):
         if self._state not in (STATE_INITIALIZED, STATE_CONNECTING, STATE_STREAMING):return
@@ -202,6 +217,13 @@ class Socket(event.EventEmitter):
                             logging.warning('fast open error: %s', e)
                             self._is_enable_fast_open = False
 
+                    if self._is_enable_nodelay:
+                        try:
+                            self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                        except Exception as e:
+                            logging.warning('nodela error: %s', e)
+                            self._is_enable_nodelay = False
+
                     if self._is_enable_fast_open:
 
                         if self._wbuffers and not self._connect_handler:
@@ -282,6 +304,7 @@ class Socket(event.EventEmitter):
                     if self._write():
                         self._loop.async(self.emit, 'drain', self)
             return
+
         if self._write():
             self._loop.async(self.emit, 'drain', self)
 
@@ -405,9 +428,9 @@ class Socket(event.EventEmitter):
             data._writting = True
 
         if self._state != STATE_STREAMING:
-            if self._state == STATE_CONNECTING and self._is_enable_fast_open:
+            if self._state == STATE_CONNECTING:
                 self._wbuffers.append(data)
-                if self._is_resolve and not self._connect_handler:
+                if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
                     return self._connect_and_write()
                 return False
             assert self._state == STATE_STREAMING, "not connected"
@@ -423,6 +446,10 @@ class Socket(event.EventEmitter):
         return False
 
 
+class Socket6(Socket):
+    pass
+
+
 class Server(event.EventEmitter):
     def __init__(self, loop=None, dns_resolver = None):
         super(Server, self).__init__()
@@ -433,21 +460,8 @@ class Server(event.EventEmitter):
         self._accept_handler = False
         self._is_enable_fast_open = False
         self._is_reuseaddr = False
+        self._is_enable_nodelay = False
         self._is_resolve = False
-
-    def enable_fast_open(self):
-        self._is_enable_fast_open = True
-
-    def enable_reuseaddr(self):
-        self._is_reuseaddr = True
-
-    @property
-    def is_enable_fast_open(self):
-        return self._is_enable_fast_open
-
-    @property
-    def is_reuseaddr(self):
-        return self._is_reuseaddr
 
     def __del__(self):
         self.close()
@@ -460,6 +474,27 @@ class Server(event.EventEmitter):
 
     def on_error(self, callback):
         self.on("error", callback)
+
+    def enable_fast_open(self):
+        self._is_enable_fast_open = True
+
+    def enable_reuseaddr(self):
+        self._is_reuseaddr = True
+
+    def enable_nodelay(self):
+        self._is_enable_nodelay = True
+
+    @property
+    def is_enable_fast_open(self):
+        return self._is_enable_fast_open
+
+    @property
+    def is_reuseaddr(self):
+        return self._is_reuseaddr
+
+    @property
+    def is_enable_nodelay(self):
+        return self._is_enable_nodelay
 
     def listen(self, address, backlog=128):
         if self._state != STATE_INITIALIZED:
@@ -505,6 +540,8 @@ class Server(event.EventEmitter):
 
         connection, address = self._socket.accept()
         socket = Socket(loop=self._loop, socket=connection, address=address)
+        if self._is_enable_nodelay:
+            socket.enable_nodelay()
         self._loop.async(self.emit, "connection", self, socket)
 
     def _error(self, error):
@@ -527,3 +564,7 @@ class Server(event.EventEmitter):
                 self.emit('close', self)
                 self.remove_all_listeners()
             self._loop.async(on_close)
+
+
+class Server6(Server):
+    pass
