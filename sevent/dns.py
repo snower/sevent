@@ -173,9 +173,9 @@ class DNSResolver(EventEmitter):
             del self._queue[hostname]
     
             for callback in callbacks:
-                self._loop.async(callback, hostname, ip)
+                self._loop.add_async(callback, hostname, ip)
     
-            self._loop.async(self.emit, "resolve", self, hostname, ip)
+            self._loop.add_async(self.emit, "resolve", self, hostname, ip)
 
         if hostname in self._hostname_server_index:
             del self._hostname_server_index[hostname]
@@ -239,7 +239,7 @@ class DNSResolver(EventEmitter):
                     return
                 if hostname not in self._cache:
                     self.send_req(hostname)
-            self._loop.timeout(self._resend_timeout, on_timeout)
+            self._loop.add_timeout(self._resend_timeout, on_timeout)
 
     def resolve(self, hostname, callback, timeout = None):
         if self._status == STATUS_CLOSED:
@@ -267,7 +267,7 @@ class DNSResolver(EventEmitter):
                             self.call_callback(hostname, None)
                         elif self._hostname_status.get(hostname, 0) == 2:
                             self.call_callback(hostname, self._cache[hostname])
-                    self._loop.timeout(timeout or self._resolve_timeout, on_timeout)
+                    self._loop.add_timeout(timeout or self._resolve_timeout, on_timeout)
                 callbacks.append(callback)
 
     def flush(self):

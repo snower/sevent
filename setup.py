@@ -11,7 +11,7 @@ else:
 
 setup(
     name = 'sevent',
-    version = '0.0.3',
+    version = '0.0.4',
     packages = ['sevent', 'sevent.impl'],
     package_data = {
         'sevent': ['README.md'],

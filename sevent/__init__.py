@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-version = '0.0.3'
-version_info = (0,0,3)
+version = '0.0.4'
+version_info = (0,0,4)
 
 from .loop import instance, current
 from .event import EventEmitter

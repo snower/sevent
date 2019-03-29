@@ -109,10 +109,10 @@ class Socket(EventEmitter):
             self._rbuffers = None
             self._wbuffers = None
             self._address_cache = None
-        self._loop.async(on_close)
+        self._loop.add_async(on_close)
 
     def _error(self, error):
-        self._loop.async(self.emit, 'error', self, error)
+        self._loop.add_async(self.emit, 'error', self, error)
         logging.error("socket error: %s", error)
         self.close()
 
@@ -145,7 +145,7 @@ class Socket(EventEmitter):
                     return self._error(e)
 
         for address in list(recv_addresses):
-            self._loop.async(self.emit, 'data', self, address, self._rbuffers[address])
+            self._loop.add_async(self.emit, 'data', self, address, self._rbuffers[address])
 
         if len(self._rbuffers) > 64:
             for address in self._rbuffers.keys():
@@ -155,7 +155,7 @@ class Socket(EventEmitter):
     def _write_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):
             if self._write():
-                self._loop.async(self.emit, 'drain', self)
+                self._loop.add_async(self.emit, 'drain', self)
 
     def _write(self):
         while self._wbuffers:
@@ -222,7 +222,7 @@ class Socket(EventEmitter):
             self._wbuffers.append((address, data))
             if not self._write_handler:
                 if self._write():
-                    self._loop.async(self.emit, 'drain', self)
+                    self._loop.add_async(self.emit, 'drain', self)
                     return True
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
                 if not self._write_handler:

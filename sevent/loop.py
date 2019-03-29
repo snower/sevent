@@ -4,43 +4,45 @@ import select
 import time
 import heapq
 import logging
+import threading
 from collections import defaultdict, deque
 from .utils import is_int
 
 ''' You can only use instance(). Don't create a Loop() '''
 
+_ioloop_lock = threading.RLock()
 _ioloop_cls = None
 _ioloop = None
 
 
 def instance():
-    global _ioloop
+    global _ioloop_cls, _ioloop
     if _ioloop is not None:
         return _ioloop
-    else:
-        init()
-        _ioloop = _ioloop_cls()
-        return _ioloop
+
+    with _ioloop_lock:
+        if _ioloop is not None:
+            return _ioloop
+        else:
+            if 'epoll' in select.__dict__:
+                from .impl import epoll_loop
+                logging.debug('using epoll')
+                _ioloop_cls = epoll_loop.EpollLoop
+            elif 'kqueue' in select.__dict__:
+                from .impl import kqueue_loop
+                logging.debug('using kqueue')
+                _ioloop_cls = kqueue_loop.KqueueLoop
+            else:
+                from .impl import select_loop
+                logging.debug('using select')
+                _ioloop_cls = select_loop.SelectLoop
+
+            _ioloop = _ioloop_cls()
+            return _ioloop
+
 
 def current():
     return _ioloop
-
-
-def init():
-    global _ioloop_cls
-
-    if 'epoll' in select.__dict__:
-        from .impl import epoll_loop
-        logging.debug('using epoll')
-        _ioloop_cls = epoll_loop.EpollLoop
-    elif 'kqueue' in select.__dict__:
-        from .impl import kqueue_loop
-        logging.debug('using kqueue')
-        _ioloop_cls = kqueue_loop.KqueueLoop
-    else:
-        from .impl import select_loop
-        logging.debug('using select')
-        _ioloop_cls = select_loop.SelectLoop
 
 
 # these values are defined as the same as poll
@@ -217,10 +219,10 @@ class IOLoop(object):
     def stop(self):
         self._stopped = True
 
-    def async(self, callback, *args, **kwargs):
+    def add_async(self, callback, *args, **kwargs):
         self._handlers.append((callback, args, kwargs))
 
-    def timeout(self, timeout, callback, *args, **kwargs):
+    def add_timeout(self, timeout, callback, *args, **kwargs):
         handler = TimeoutHandler(callback, time.time() + timeout, args, kwargs)
         heapq.heappush(self._timeout_handlers, handler)
         return handler
