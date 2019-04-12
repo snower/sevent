@@ -180,14 +180,14 @@ class IOLoop(object):
                 cur_time = time.time()
                 while self._timeout_handlers:
                     handler = self._timeout_handlers[0]
-                    if handler.deadline <= cur_time:
+                    if handler.canceled:
+                        heapq.heappop(self._timeout_handlers)
+                    elif handler.deadline <= cur_time:
                         heapq.heappop(self._timeout_handlers)
                         try:
                             handler.callback(*handler.args, **handler.kwargs)
                         except Exception as e:
                             logging.exception("loop callback timeout error:%s", e)
-                    elif handler.canceled:
-                        heapq.heappop(self._timeout_handlers)
                     else:
                         timeout = self._timeout_handlers[0].deadline - cur_time
                         if timeout > 1:
