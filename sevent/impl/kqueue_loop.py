@@ -6,7 +6,10 @@ from collections import defaultdict
 from ..loop import IOLoop, MODE_NULL, MODE_IN, MODE_OUT
 from ..utils import is_py3
 
-MAX_EVENTS = int(os.environ.get("SEVENT_KQUEUE_MAX_EVENTS", 1024))
+try:
+    MAX_EVENTS = int(os.environ.get("SEVENT_KQUEUE_MAX_EVENTS", 1024))
+except:
+    MAX_EVENTS = 1024
 
 class KqueueLoop(IOLoop):
     def __init__(self):

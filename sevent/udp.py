@@ -2,6 +2,7 @@
 # 2014/12/28
 # create by: snower
 
+import os
 import logging
 import socket
 import errno
@@ -16,14 +17,19 @@ STATE_BINDING = 0x02
 STATE_CLOSING = 0x04
 STATE_CLOSED = 0x06
 
-RECV_BUFSIZE = 4096
+try:
+    RECV_BUFFER_SIZE = int(os.environ.get("SEVENT_RECV_BUFFER_SIZE", 256 * 1024))
+except:
+    RECV_BUFFER_SIZE = 256 * 1024
 
 class Socket(EventEmitter):
     MAX_BUFFER_SIZE = None
+    RECV_BUFFER_SIZE = RECV_BUFFER_SIZE
 
     @classmethod
-    def config(cls, max_buffer_size, **kwargs):
+    def config(cls, max_buffer_size=None, recv_buffer_size=RECV_BUFFER_SIZE, **kwargs):
         cls.MAX_BUFFER_SIZE = max_buffer_size
+        cls.RECV_BUFFER_SIZE = recv_buffer_size
 
     def __init__(self, loop=None, dns_resolver=None, max_buffer_size = None):
         super(Socket, self).__init__()
@@ -135,7 +141,7 @@ class Socket(EventEmitter):
         recv_addresses = set([])
         while self._read_handler:
             try:
-                data, address = self._socket.recvfrom(RECV_BUFSIZE)
+                data, address = self._socket.recvfrom(self.RECV_BUFFER_SIZE)
                 self._rbuffers[address].write(data)
                 recv_addresses.add(address)
             except socket.error as e:

@@ -55,6 +55,8 @@ class Buffer(EventEmitter):
             self._buffer = data
             self._buffer_len = len(data)
             self._index = 0
+        elif self._buffer_len <= 0 and self._buffer:
+            self._buffer = b''
 
     def write(self, data):
         if self._buffer_len <= 0:
@@ -71,12 +73,12 @@ class Buffer(EventEmitter):
 
     def read(self, size = -1):
         if self._len <= 0:
-            return None
+            return b""
             
         if size < 0:
             if self._buffer_len - self._index < self._len:
                 self.join()
-            if self._index > 0:
+            elif self._index > 0:
                 self._buffer = self._buffer[self._index:]
             self._index, self._buffer_len, self._len = 0, 0, 0
 
@@ -91,7 +93,7 @@ class Buffer(EventEmitter):
             return self._buffer
 
         if self._len < size:
-            return None
+            return b""
 
         if self._buffer_len - self._index < size:
             self.join()
@@ -108,7 +110,7 @@ class Buffer(EventEmitter):
 
     def next(self):
         if self._len <= 0:
-            return None
+            return b""
             
         if self._buffer_len - self._index > 0:
             self._len -= self._buffer_len - self._index
@@ -146,15 +148,18 @@ class Buffer(EventEmitter):
         return self._len
 
     def __str__(self):
+        self.join()
+
         if is_py3:
-            return ensure_unicode(self._buffer[self._index:] + b"".join(self._buffers))
-        return self._buffer[self._index:] + b"".join(self._buffers)
+            return ensure_unicode(self._buffer)
+        return self._buffer
 
     def __nonzero__(self):
         return self._len > 0
 
     def __getitem__(self, index):
-        return str(self).__getitem__(index)
+        self.join()
+        return self._buffer.__getitem__(index)
 
     def __iter__(self):
         while True:
@@ -164,7 +169,9 @@ class Buffer(EventEmitter):
             yield data
 
     def __contains__(self, item):
-        return str(self).__contains__(item)
+        self.join()
+        return self._buffer.__contains__(item)
 
     def __hash__(self):
-        return str(self).__hash__()
+        self.join()
+        return self._buffer.__hash__()
