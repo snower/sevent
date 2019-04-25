@@ -55,8 +55,6 @@ class Buffer(EventEmitter):
             self._buffer = data
             self._buffer_len = len(data)
             self._index = 0
-        elif self._buffer_len <= 0 and self._buffer:
-            self._buffer = b''
 
     def write(self, data):
         if self._buffer_len <= 0:
@@ -140,6 +138,10 @@ class Buffer(EventEmitter):
             self.emit("regain", self)
 
     def memoryview(self, start = 0, end = None):
+        self.join()
+        if self._buffer_len - self._index <= 0 and self._buffer:
+            self._buffer = b''
+
         if end:
             return memoryview(self._buffer)[self._index + start: self._index + end]
         return memoryview(self._buffer)[self._index + start:]
@@ -149,17 +151,21 @@ class Buffer(EventEmitter):
 
     def __str__(self):
         self.join()
+        if self._buffer_len - self._index <= 0 and self._buffer:
+            self._buffer = b''
 
         if is_py3:
-            return ensure_unicode(self._buffer)
-        return self._buffer
+            return ensure_unicode(self._buffer[self._index:])
+        return self._buffer[self._index:]
 
     def __nonzero__(self):
         return self._len > 0
 
     def __getitem__(self, index):
         self.join()
-        return self._buffer.__getitem__(index)
+        if self._buffer_len - self._index <= 0 and self._buffer:
+            self._buffer = b''
+        return self._buffer[self._index:].__getitem__(index)
 
     def __iter__(self):
         while True:
@@ -170,8 +176,12 @@ class Buffer(EventEmitter):
 
     def __contains__(self, item):
         self.join()
-        return self._buffer.__contains__(item)
+        if self._buffer_len - self._index <= 0 and self._buffer:
+            self._buffer = b''
+        return self._buffer[self._index:].__contains__(item)
 
     def __hash__(self):
         self.join()
-        return self._buffer.__hash__()
+        if self._buffer_len - self._index <= 0 and self._buffer:
+            self._buffer = b''
+        return self._buffer[self._index:].__hash__()
