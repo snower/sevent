@@ -50,6 +50,7 @@ class Socket(event.EventEmitter):
         self._is_enable_fast_open = False
         self._is_enable_nodelay = False
         self._is_resolve = False
+        self._has_drain_event = False
 
         if self._socket:
             self._state = STATE_STREAMING
@@ -66,6 +67,25 @@ class Socket(event.EventEmitter):
 
     def __del__(self):
         self.close()
+
+    def on(self, event_name, callback):
+        super(Socket, self).on(event_name, callback)
+
+        if event_name == "drain":
+            self._has_drain_event = True
+
+    def once(self, event_name, callback):
+        super(Socket, self).once(event_name, callback)
+
+        if event_name == "drain":
+            self._has_drain_event = True
+
+    def remove_listener(self, event_name, callback):
+        super(Socket, self).remove_listener(event_name, callback)
+
+        if not self._events[event_name] and not self._events_once[event_name]:
+            if event_name == "drain":
+                self._has_drain_event = False
 
     def on_connect(self, callback):
         self.on("connect", callback)
@@ -307,11 +327,13 @@ class Socket(event.EventEmitter):
                 self._connect_cb()
                 if self._wbuffers:
                     if self._write():
-                        self._loop.add_async(self.emit, 'drain', self)
+                        if self._has_drain_event:
+                            self._loop.add_async(self.emit, 'drain', self)
             return
 
         if self._write():
-            self._loop.add_async(self.emit, 'drain', self)
+            if self._has_drain_event:
+                self._loop.add_async(self.emit, 'drain', self)
 
     def _connect_and_write(self):
         if self._wbuffers:
@@ -421,7 +443,8 @@ class Socket(event.EventEmitter):
         self._wbuffers.append(data)
         if not self._write_handler:
             if self._write():
-                self._loop.add_async(self.emit, 'drain', self)
+                if self._has_drain_event:
+                    self._loop.add_async(self.emit, 'drain', self)
                 return True
             self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
             if not self._write_handler:

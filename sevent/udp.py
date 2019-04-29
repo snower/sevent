@@ -46,6 +46,7 @@ class Socket(EventEmitter):
         self._socket = None
         self._read_handler = None
         self._write_handler = None
+        self._has_drain_event = False
 
         self._create_socket()
 
@@ -66,6 +67,25 @@ class Socket(EventEmitter):
 
     def __del__(self):
         self.close()
+
+    def on(self, event_name, callback):
+        super(Socket, self).on(event_name, callback)
+
+        if event_name == "drain":
+            self._has_drain_event = True
+
+    def once(self, event_name, callback):
+        super(Socket, self).once(event_name, callback)
+
+        if event_name == "drain":
+            self._has_drain_event = True
+
+    def remove_listener(self, event_name, callback):
+        super(Socket, self).remove_listener(event_name, callback)
+
+        if not self._events[event_name] and not self._events_once[event_name]:
+            if event_name == "drain":
+                self._has_drain_event = False
 
     def on_data(self, callback):
         self.on("data", callback)
@@ -161,7 +181,8 @@ class Socket(EventEmitter):
     def _write_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):
             if self._write():
-                self._loop.add_async(self.emit, 'drain', self)
+                if self._has_drain_event:
+                    self._loop.add_async(self.emit, 'drain', self)
 
     def _write(self):
         while self._wbuffers:
@@ -234,7 +255,8 @@ class Socket(EventEmitter):
             self._wbuffers.append((address, data))
             if not self._write_handler:
                 if self._write():
-                    self._loop.add_async(self.emit, 'drain', self)
+                    if self._has_drain_event:
+                        self._loop.add_async(self.emit, 'drain', self)
                     return True
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
                 if not self._write_handler:
