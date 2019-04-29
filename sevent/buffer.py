@@ -43,6 +43,16 @@ class Buffer(EventEmitter):
     def once_regain(self, callback):
         self.once("regain", callback)
 
+    def do_drain(self):
+        self._full = True
+        self._drain_time = time.time()
+        self.emit("drain", self)
+
+    def do_regain(self):
+        self._full = False
+        self._regain_time = time.time()
+        self.emit("regain", self)
+
     def join(self):
         if self._buffer_len - self._index < self._len:
             if self._index < self._buffer_len:
@@ -63,10 +73,8 @@ class Buffer(EventEmitter):
         else:
             self._buffers.append(data)
         self._len += len(data)
-        if self._len > self._drain_size:
-            self._full = True
-            self._drain_time = time.time()
-            self.emit("drain", self)
+        if not self._full and self._len > self._drain_size:
+            self.do_drain()
         return self
 
     def read(self, size = -1):
@@ -81,13 +89,7 @@ class Buffer(EventEmitter):
             self._index, self._buffer_len, self._len = 0, 0, 0
 
             if self._full and self._len < self._regain_size:
-                self._full = False
-                self._regain_time = time.time()
-                if self._regain_time - self._drain_size <= 1:
-                    self._drain_size = self._drain_size * 2
-                    self._regain_size = self._drain_size * 0.5
-                self.emit("regain", self)
-
+                self.do_regain()
             return self._buffer
 
         if self._len < size:
@@ -101,9 +103,7 @@ class Buffer(EventEmitter):
         self._len -= size
 
         if self._full and self._len < self._regain_size:
-            self._full = False
-            self.emit("regain", self)
-
+            self.do_regain()
         return data
 
     def next(self):
@@ -113,10 +113,14 @@ class Buffer(EventEmitter):
         if self._buffer_len - self._index > 0:
             self._len -= self._buffer_len - self._index
             self._buffer_len, self._index, index = 0, 0, self._index
+            if self._full and self._len < self._regain_size:
+                self.do_regain()
             return self._buffer[index:]
 
         data = self._buffers.popleft()
         self._len -= len(data)
+        if self._full and self._len < self._regain_size:
+            self.do_regain()
         return data
 
     def more(self, max_size):
@@ -134,8 +138,7 @@ class Buffer(EventEmitter):
         self._len -= size
 
         if self._full and self._len < self._regain_size:
-            self._full = False
-            self.emit("regain", self)
+            self.do_regain()
 
     def memoryview(self, start = 0, end = None):
         self.join()

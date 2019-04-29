@@ -325,58 +325,30 @@ class Socket(event.EventEmitter):
                 self._connect_timeout_handler = None
             self._connect_timeout_handler = self._loop.add_timeout(self._connect_timeout, on_timeout_cb)
 
-            data = self._wbuffers[0]
-            if data.__class__ == Buffer:
-                try:
-                    if data._index == 0 and data._buffer_len == data._len:
-                        r = self._socket.sendto(data._buffer, MSG_FASTOPEN, self.address)
-                        data._index += r
-                        data._len -= r
+            wbuffers = []
+            while self._wbuffers:
+                data = self._wbuffers.popleft()
+                if data.__class__ == Buffer:
+                    wbuffers.append(data.read(-1))
+                else:
+                    wbuffers.append(data)
+            data = b"".join(wbuffers)
 
-                        if data._index >= data._buffer_len:
-                            if data._len > 0:
-                                data._buffer = data._buffers.popleft()
-                                data._index, data._buffer_len = 0, len(data._buffer)
-                            else:
-                                data._index, data._buffer_len = 0, 0
-                                data._writting = False
-                                self._wbuffers.popleft()
-                    else:
-                        buf_len = data._len
-                        buf = data.read(-1)
-                        r = self._socket.sendto(buf, MSG_FASTOPEN, self.address)
-                        if r >= buf_len:
-                            self._wbuffers.popleft()
-                        else:
-                            data.write(buf[r:])
-
+            try:
+                r = self._socket.sendto(data, MSG_FASTOPEN, self.address)
+                if r < len(data):
+                    self._wbuffers.appendleft(data[r:])
+                self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+            except socket.error as e:
+                if e.args[0] == errno.EINPROGRESS:
+                    self._wbuffers.appendleft(data)
                     self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
-                except socket.error as e:
-                    if e.args[0] == errno.EINPROGRESS:
-                        self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
-                        return False
-                    elif e.args[0] == errno.ENOTCONN:
-                        self._is_enable_fast_open = False
-                    self._error(e)
                     return False
-            else:
-                try:
-                    data = b"".join(self._wbuffers)
-                    self._wbuffers.clear()
-                    r = self._socket.sendto(data, MSG_FASTOPEN, self.address)
-                    if r < len(data):
-                        self._wbuffers.appendleft(data[r:])
-                    self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
-                except socket.error as e:
-                    if e.args[0] == errno.EINPROGRESS:
-                        self._wbuffers.appendleft(data)
-                        self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
-                        return False
-                    elif e.args[0] == errno.ENOTCONN:
-                        logging.error('fast open not supported on this OS')
-                        self._is_enable_fast_open = False
-                    self._error(e)
-                    return False
+                elif e.args[0] == errno.ENOTCONN:
+                    logging.error('fast open not supported on this OS')
+                    self._is_enable_fast_open = False
+                self._error(e)
+                return False
 
     def _write(self):
         while self._wbuffers:
@@ -398,12 +370,18 @@ class Socket(event.EventEmitter):
                             data._index, data._buffer_len = 0, 0
                             data._writting = False
                             self._wbuffers.popleft()
+                            if data._full and data._len < data._regain_size:
+                                data.do_regain()
                         continue
                     else:
+                        if data._full and data._len < data._regain_size:
+                            data.do_regain()
                         return False
                 except socket.error as e:
                     if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                         self._error(e)
+                    if data._full and data._len < data._regain_size:
+                        data.do_regain()
                     return False
             else:
                 try:
@@ -428,7 +406,7 @@ class Socket(event.EventEmitter):
 
     def write(self, data):
         if data.__class__ == Buffer:
-            if data._writting:
+            if data._writting or data._len <= 0:
                 return False
             data._writting = True
 

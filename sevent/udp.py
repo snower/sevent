@@ -183,12 +183,18 @@ class Socket(EventEmitter):
                             data._index, data._buffer_len = 0, 0
                             data._writting = False
                             self._wbuffers.popleft()
+                            if data._full and data._len < data._regain_size:
+                                data.do_regain()
                         continue
                     else:
+                        if data._full and data._len < data._regain_size:
+                            data.do_regain()
                         return False
                 except socket.error as e:
                     if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                         self._error(e)
+                    if data._full and data._len < data._regain_size:
+                        data.do_regain()
                     return False
             else:
                 try:
@@ -217,7 +223,7 @@ class Socket(EventEmitter):
             return False
 
         if data.__class__ == Buffer:
-            if data._writting:
+            if data._writting or data._len <= 0:
                 return False
             data._writting = True
 
