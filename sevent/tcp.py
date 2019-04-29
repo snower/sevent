@@ -20,9 +20,9 @@ STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
 
 try:
-    RECV_BUFFER_SIZE = int(os.environ.get("SEVENT_RECV_BUFFER_SIZE", 256 * 1024))
+    RECV_BUFFER_SIZE = int(os.environ.get("SEVENT_RECV_BUFFER_SIZE", 8 * 1024 - 64))
 except:
-    RECV_BUFFER_SIZE = 256 * 1024
+    RECV_BUFFER_SIZE = 8 * 1024 - 64
 
 class Socket(event.EventEmitter):
     MAX_BUFFER_SIZE = None
