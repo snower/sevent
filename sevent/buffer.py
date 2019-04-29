@@ -98,7 +98,7 @@ class Buffer(EventEmitter):
         if self._buffer_len - self._index < size:
             self.join()
 
-        data = self._buffer[self._index : self._index + size]
+        data = self._buffer[self._index: self._index + size]
         self._index += size
         self._len -= size
 
