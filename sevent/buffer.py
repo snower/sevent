@@ -70,9 +70,10 @@ class Buffer(EventEmitter):
         if self._buffer_len <= 0:
             self._buffer = data
             self._buffer_len = len(data)
+            self._len += self._buffer_len
         else:
             self._buffers.append(data)
-        self._len += len(data)
+            self._len += len(data)
         if not self._full and self._len > self._drain_size:
             self.do_drain()
         return self
@@ -84,22 +85,29 @@ class Buffer(EventEmitter):
         if size < 0:
             if self._buffer_len - self._index < self._len:
                 self.join()
+                buffer = self._buffer
             elif self._index > 0:
-                self._buffer = self._buffer[self._index:]
-            self._index, self._buffer_len, self._len = 0, 0, 0
+                buffer = self._buffer[self._index:]
+            else:
+                buffer = self._buffer
+            self._index, self._buffer_len, self._buffer, self._len = 0, 0, b'', 0
 
             if self._full and self._len < self._regain_size:
                 self.do_regain()
-            return self._buffer
+            return buffer
 
         if self._len < size:
             return b""
 
         if self._buffer_len - self._index < size:
             self.join()
-
-        data = self._buffer[self._index: self._index + size]
-        self._index += size
+            data = self._buffer[:size]
+            self._index = size
+        else:
+            data = self._buffer[self._index: self._index + size]
+            self._index += size
+        if self._index >= self._buffer_len:
+            self._index, self._buffer_len, self._buffer = 0, 0, b''
         self._len -= size
 
         if self._full and self._len < self._regain_size:
@@ -112,10 +120,11 @@ class Buffer(EventEmitter):
             
         if self._buffer_len - self._index > 0:
             self._len -= self._buffer_len - self._index
-            self._buffer_len, self._index, index = 0, 0, self._index
+            index, buffer = self._index, self._buffer
+            self._index, self._buffer_len, self._buffer = 0, 0, b''
             if self._full and self._len < self._regain_size:
                 self.do_regain()
-            return self._buffer[index:]
+            return buffer[index:]
 
         data = self._buffers.popleft()
         self._len -= len(data)
@@ -142,8 +151,6 @@ class Buffer(EventEmitter):
 
     def memoryview(self, start = 0, end = None):
         self.join()
-        if self._buffer_len - self._index <= 0 and self._buffer:
-            self._buffer = b''
 
         if end:
             return memoryview(self._buffer)[self._index + start: self._index + end]
@@ -154,8 +161,6 @@ class Buffer(EventEmitter):
 
     def __str__(self):
         self.join()
-        if self._buffer_len - self._index <= 0 and self._buffer:
-            self._buffer = b''
 
         if is_py3:
             return ensure_unicode(self._buffer[self._index:])
@@ -166,8 +171,7 @@ class Buffer(EventEmitter):
 
     def __getitem__(self, index):
         self.join()
-        if self._buffer_len - self._index <= 0 and self._buffer:
-            self._buffer = b''
+
         return self._buffer[self._index:].__getitem__(index)
 
     def __iter__(self):
@@ -179,12 +183,10 @@ class Buffer(EventEmitter):
 
     def __contains__(self, item):
         self.join()
-        if self._buffer_len - self._index <= 0 and self._buffer:
-            self._buffer = b''
+
         return self._buffer[self._index:].__contains__(item)
 
     def __hash__(self):
         self.join()
-        if self._buffer_len - self._index <= 0 and self._buffer:
-            self._buffer = b''
+
         return self._buffer[self._index:].__hash__()

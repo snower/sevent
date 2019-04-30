@@ -351,6 +351,7 @@ class Socket(event.EventEmitter):
             while self._wbuffers:
                 data = self._wbuffers.popleft()
                 if data.__class__ == Buffer:
+                    data._writting = False
                     wbuffers.append(data.read(-1))
                 else:
                     wbuffers.append(data)
