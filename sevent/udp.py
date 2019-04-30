@@ -3,7 +3,6 @@
 # create by: snower
 
 import os
-import time
 import logging
 import socket
 import errno
@@ -58,7 +57,6 @@ class Socket(EventEmitter):
         self._wbuffers = deque()
         self._address_cache = {}
         self._state = STATE_STREAMING
-        self._check_rbuffers_time = time.time()
 
     def _create_socket(self):
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
@@ -158,12 +156,6 @@ class Socket(EventEmitter):
     def _read_cb(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             self._read()
-
-        if time.time() - self._check_rbuffers_time >= 300:
-            for address in self._rbuffers.keys():
-                if not self._rbuffers[address]:
-                    del self._rbuffers[address]
-            self._check_rbuffers_time = time.time()
 
     def _read(self):
         recv_addresses = set([])
@@ -299,6 +291,17 @@ class Server(Socket):
 
         self._state = STATE_BINDING
         self._dns_resolver.resolve(address[0], do_bind)
+        self._loop.add_timeout(120, self.on_check_rbuffer_timeout)
+        
+    def on_check_rbuffer_timeout(self):
+        if self._state == STATE_CLOSED:
+            return
+        
+        for address in self._rbuffers.keys():
+            if not self._rbuffers[address]:
+                del self._rbuffers[address]
+                
+        self._loop.add_timeout(120, self.on_check_rbuffer_timeout)
 
     def __del__(self):
         self.close()
