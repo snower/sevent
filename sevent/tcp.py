@@ -390,7 +390,7 @@ class Socket(event.EventEmitter):
                             data._buffer = data._buffers.popleft()
                             data._index, data._buffer_len = 0, len(data._buffer)
                         else:
-                            data._index, data._buffer_len = 0, 0
+                            data._index, data._buffer_len, data._buffer = 0, 0, b''
                             data._writting = False
                             self._wbuffers.popleft()
                             if data._full and data._len < data._regain_size:

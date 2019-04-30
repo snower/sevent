@@ -118,13 +118,13 @@ class Buffer(EventEmitter):
         if self._len <= 0:
             return b""
             
-        if self._buffer_len - self._index > 0:
+        if self._index < self._buffer_len:
+            data = self._buffer[self._index:]
             self._len -= self._buffer_len - self._index
-            index, buffer = self._index, self._buffer
             self._index, self._buffer_len, self._buffer = 0, 0, b''
             if self._full and self._len < self._regain_size:
                 self.do_regain()
-            return buffer[index:]
+            return data
 
         data = self._buffers.popleft()
         self._len -= len(data)

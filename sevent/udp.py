@@ -3,6 +3,7 @@
 # create by: snower
 
 import os
+import time
 import logging
 import socket
 import errno
@@ -57,6 +58,7 @@ class Socket(EventEmitter):
         self._wbuffers = deque()
         self._address_cache = {}
         self._state = STATE_STREAMING
+        self._check_rbuffers_time = time.time()
 
     def _create_socket(self):
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
@@ -157,6 +159,12 @@ class Socket(EventEmitter):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             self._read()
 
+        if time.time() - self._check_rbuffers_time >= 300:
+            for address in self._rbuffers.keys():
+                if not self._rbuffers[address]:
+                    del self._rbuffers[address]
+            self._check_rbuffers_time = time.time()
+
     def _read(self):
         recv_addresses = set([])
         while self._read_handler:
@@ -172,11 +180,6 @@ class Socket(EventEmitter):
 
         for address in list(recv_addresses):
             self._loop.add_async(self.emit, 'data', self, address, self._rbuffers[address])
-
-        if len(self._rbuffers) > 64:
-            for address in self._rbuffers.keys():
-                if not self._rbuffers[address]:
-                    del self._rbuffers[address]
 
     def _write_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):
@@ -201,7 +204,7 @@ class Socket(EventEmitter):
                             data._buffer = data._buffers.popleft()
                             data._index, data._buffer_len = 0, len(data._buffer)
                         else:
-                            data._index, data._buffer_len = 0, 0
+                            data._index, data._buffer_len, data._buffer = 0, 0, b''
                             data._writting = False
                             self._wbuffers.popleft()
                             if data._full and data._len < data._regain_size:
