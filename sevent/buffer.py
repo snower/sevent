@@ -80,9 +80,6 @@ class Buffer(EventEmitter):
         return self
 
     def read(self, size = -1):
-        if self._len <= 0:
-            return b""
-            
         if size < 0:
             if self._buffer_len - self._index < self._len:
                 self.join()
@@ -121,16 +118,6 @@ class Buffer(EventEmitter):
         return data
 
     def next(self):
-        if self._len <= 0:
-            return b""
-            
-        if self._buffer_len <= 0:
-            data = self._buffers.popleft()
-            self._len -= len(data)
-            if self._full and self._len < self._regain_size:
-                self.do_regain()
-            return data
-            
         if self._index > 0:
             data = self._buffer[self._index:]
             self._len -= self._buffer_len - self._index
