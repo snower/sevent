@@ -67,13 +67,14 @@ class Buffer(EventEmitter):
             self._index = 0
 
     def write(self, data):
-        if self._buffer_len <= 0:
+        if self._buffer_len > 0:
+            self._buffers.append(data)
+            self._len += len(data)
+        else:
             self._buffer = data
             self._buffer_len = len(data)
             self._len += self._buffer_len
-        else:
-            self._buffers.append(data)
-            self._len += len(data)
+
         if not self._full and self._len > self._drain_size:
             self.do_drain()
         return self
@@ -106,9 +107,14 @@ class Buffer(EventEmitter):
         else:
             data = self._buffer[self._index: self._index + size]
             self._index += size
-        if self._index >= self._buffer_len:
-            self._index, self._buffer_len, self._buffer = 0, 0, b''
         self._len -= size
+        
+        if self._index >= self._buffer_len:
+            if self._len > 0:
+                self._buffer = self._buffers.popleft()
+                self._index, self._buffer_len = 0, len(self._buffer)
+            else:
+                self._index, self._buffer_len, self._buffer = 0, 0, b''
 
         if self._full and self._len < self._regain_size:
             self.do_regain()
@@ -118,16 +124,25 @@ class Buffer(EventEmitter):
         if self._len <= 0:
             return b""
             
-        if self._index < self._buffer_len:
-            data = self._buffer[self._index:]
-            self._len -= self._buffer_len - self._index
-            self._index, self._buffer_len, self._buffer = 0, 0, b''
+        if self._buffer_len <= 0:
+            data = self._buffers.popleft()
+            self._len -= len(data)
             if self._full and self._len < self._regain_size:
                 self.do_regain()
             return data
-
-        data = self._buffers.popleft()
-        self._len -= len(data)
+            
+        if self._index > 0:
+            data = self._buffer[self._index:]
+            self._len -= self._buffer_len - self._index
+        else:
+            data = self._buffer
+            self._len -= self._buffer_len
+        
+        if self._len > 0:
+            self._buffer = self._buffers.popleft()
+            self._index, self._buffer_len = 0, len(self._buffer)
+        else:
+            self._index, self._buffer_len, self._buffer = 0, 0, b''
         if self._full and self._len < self._regain_size:
             self.do_regain()
         return data
