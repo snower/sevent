@@ -10,7 +10,7 @@ from collections import deque, defaultdict
 from .event import EventEmitter
 from .loop import instance, MODE_IN, MODE_OUT
 from .dns import DNSResolver
-from .buffer import Buffer
+from .buffer import Buffer, cbuffer
 
 STATE_STREAMING = 0x01
 STATE_BINDING = 0x02
@@ -184,19 +184,19 @@ class Socket(EventEmitter):
             address, data = self._wbuffers[0]
             if data.__class__ == Buffer:
                 try:
-                    if data._index > 0:
-                        r = self._socket.sendto(memoryview(data._buffer)[data._index:], address)
+                    if data._buffer_index > 0:
+                        r = self._socket.sendto(memoryview(data._buffer)[data._buffer_index:], address)
                     else:
                         r = self._socket.sendto(data._buffer, address)
-                    data._index += r
+                    data._buffer_index += r
                     data._len -= r
 
-                    if data._index >= data._buffer_len:
+                    if data._buffer_index >= data._buffer_len:
                         if data._len > 0:
                             data._buffer = data._buffers.popleft()
-                            data._index, data._buffer_len = 0, len(data._buffer)
+                            data._buffer_index, data._buffer_len = 0, len(data._buffer)
                         else:
-                            data._index, data._buffer_len, data._buffer = 0, 0, b''
+                            data._buffer_index, data._buffer_len, data._buffer = 0, 0, b''
                             data._writting = False
                             self._wbuffers.popleft()
                             if data._full and data._len < data._regain_size:

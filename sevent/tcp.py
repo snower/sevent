@@ -2,12 +2,11 @@
 
 import os
 import logging
-from collections import deque
 import socket
 import errno
 from . import event
 from .loop import instance, MODE_IN, MODE_OUT
-from .buffer import Buffer
+from .buffer import Buffer, cbuffer
 from .dns import DNSResolver
 
 MSG_FASTOPEN = 0x20000000
@@ -45,7 +44,7 @@ class Socket(event.EventEmitter):
         self._read_handler = False
         self._write_handler = False
         self._rbuffers = Buffer(max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE)
-        self._wbuffers = deque()
+        self._wbuffers = None
         self._state = STATE_INITIALIZED
         self._is_enable_fast_open = False
         self._is_enable_nodelay = False
@@ -198,8 +197,8 @@ class Socket(event.EventEmitter):
 
         self._state = STATE_STREAMING
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
-        self._rbuffers.on("drain", lambda _ : self.drain())
-        self._rbuffers.on("regain", lambda _ : self.regain())
+        self._rbuffers.on("drain", lambda _: self.drain())
+        self._rbuffers.on("regain", lambda _: self.regain())
         self._loop.add_async(self.emit, 'connect', self)
 
         if self._wbuffers and not self._write_handler:
@@ -304,22 +303,30 @@ class Socket(event.EventEmitter):
             if self._state in (STATE_STREAMING, STATE_CLOSING):
                 self.close()
 
-    def _read(self):
-        last_data_len = self._rbuffers._len
-        while self._read_handler:
-            try:
-                data = self._socket.recv(self.RECV_BUFFER_SIZE)
-                if not data:
-                    return False
-                self._rbuffers.write(data)
-            except socket.error as e:
-                if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                    break
-                else:
-                    self._error(e)
-                    return False
+    if cbuffer is None:
+        def _read(self):
+            last_data_len = self._rbuffers._len
+            while self._read_handler:
+                try:
+                    data = self._socket.recv(self.RECV_BUFFER_SIZE)
+                    if not data:
+                        return False
+                    self._rbuffers.write(data)
+                except socket.error as e:
+                    if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
+                        break
+                    else:
+                        self._error(e)
+                        return False
 
-        return last_data_len < self._rbuffers._len
+            return last_data_len < self._rbuffers._len
+    else:
+        def _read(self):
+            try:
+                return self._rbuffers.socket_recv(self._socket.fileno())
+            except socket.error as e:
+                self._error(e)
+                return False
 
     def _write_cb(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
@@ -373,75 +380,80 @@ class Socket(event.EventEmitter):
                 self._error(e)
                 return False
 
-    def _write(self):
-        while self._wbuffers:
-            data = self._wbuffers[0]
-            if data.__class__ == Buffer:
+    if cbuffer is None:
+        def _write(self):
+            while self._wbuffers:
+                data = self._wbuffers
                 try:
-                    if data._index > 0:
-                        r = self._socket.send(memoryview(data._buffer)[data._index:])
+                    if data._buffer_index > 0:
+                        r = self._socket.send(memoryview(data._buffer)[data._buffer_index:])
                     else:
                         r = self._socket.send(data._buffer)
-                    data._index += r
+                    data._buffer_index += r
                     data._len -= r
 
-                    if data._index >= data._buffer_len:
+                    if data._buffer_index >= data._buffer_len:
                         if data._len > 0:
                             data._buffer = data._buffers.popleft()
-                            data._index, data._buffer_len = 0, len(data._buffer)
+                            data._buffer_index, data._buffer_len = 0, len(data._buffer)
                         else:
-                            data._index, data._buffer_len, data._buffer = 0, 0, b''
-                            data._writting = False
-                            self._wbuffers.popleft()
-                            if data._full and data._len < data._regain_size:
-                                data.do_regain()
+                            data._buffer_index, data._buffer_len, data._buffer = 0, 0, b''
                         continue
                     else:
-                        if data._full and data._len < data._regain_size:
-                            data.do_regain()
                         return False
                 except socket.error as e:
                     if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                         self._error(e)
-                    if data._full and data._len < data._regain_size:
-                        data.do_regain()
-                    return False
-            else:
-                try:
-                    self._wbuffers.popleft()
-                    r = self._socket.send(data)
-                    if r < len(data):
-                        self._wbuffers.appendleft(data[r:])
-                        return False
-                except socket.error as e:
-                    if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                        self._wbuffers.appendleft(data)
-                    else:
-                        self._error(e)
                     return False
 
-        if self._write_handler:
-            self._loop.remove_fd(self._socket, self._write_cb)
-            self._write_handler = False
-        if self._state == STATE_CLOSING:
-            self.close()
-        return True
+            if self._write_handler:
+                self._loop.remove_fd(self._socket, self._write_cb)
+                self._write_handler = False
+            if self._state == STATE_CLOSING:
+                self.close()
+            return True
+    else:
+        def _write(self):
+            try:
+                self._wbuffers.socket_send(self._socket.fileno())
+                if self._wbuffers:
+                    return False
+            except socket.error as e:
+                self._error(e)
+                return False
+
+            if self._write_handler:
+                self._loop.remove_fd(self._socket, self._write_cb)
+                self._write_handler = False
+            if self._state == STATE_CLOSING:
+                self.close()
+            return True
 
     def write(self, data):
         if data.__class__ == Buffer:
-            if data._writting or data._len <= 0:
+            if data._len <= 0:
                 return False
-            data._writting = True
+
+            if self._wbuffers is None:
+                self._wbuffers = data
+            else:
+                buf = data.next()
+                while buf:
+                    self._wbuffers.write(buf)
+                    buf = data.next()
+        else:
+            if self._wbuffers is None:
+                self._wbuffers = Buffer()
+            else:
+                self._wbuffers.write(data)
 
         if self._state != STATE_STREAMING:
             if self._state == STATE_CONNECTING:
-                self._wbuffers.append(data)
                 if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
                     return self._connect_and_write()
                 return False
             assert self._state == STATE_STREAMING, "not connected"
 
-        self._wbuffers.append(data)
         if not self._write_handler:
             if self._write():
                 if self._has_drain_event:
