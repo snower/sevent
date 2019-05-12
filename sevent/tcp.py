@@ -43,7 +43,8 @@ class Socket(event.EventEmitter):
         self._connect_timeout_handler = None
         self._read_handler = False
         self._write_handler = False
-        self._rbuffers = Buffer(max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE)
+        self._max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE
+        self._rbuffers = Buffer(max_buffer_size= self._max_buffer_size)
         self._wbuffers = None
         self._state = STATE_INITIALIZED
         self._is_enable_fast_open = False
@@ -354,24 +355,15 @@ class Socket(event.EventEmitter):
                 self._connect_timeout_handler = None
             self._connect_timeout_handler = self._loop.add_timeout(self._connect_timeout, on_timeout_cb)
 
-            wbuffers = []
-            while self._wbuffers:
-                data = self._wbuffers.popleft()
-                if data.__class__ == Buffer:
-                    data._writting = False
-                    wbuffers.append(data.read(-1))
-                else:
-                    wbuffers.append(data)
-            data = b"".join(wbuffers)
-
+            data = self._wbuffers.read()
             try:
                 r = self._socket.sendto(data, MSG_FASTOPEN, self.address)
                 if r < len(data):
-                    self._wbuffers.appendleft(data[r:])
+                    self._wbuffers.write(data[r:])
                 self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
             except socket.error as e:
                 if e.args[0] == errno.EINPROGRESS:
-                    self._wbuffers.appendleft(data)
+                    self._wbuffers.write(data)
                     self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
                     return False
                 elif e.args[0] == errno.ENOTCONN:
@@ -398,12 +390,18 @@ class Socket(event.EventEmitter):
                             data._buffer_index, data._buffer_len = 0, len(data._buffer)
                         else:
                             data._buffer_index, data._buffer_len, data._buffer = 0, 0, b''
+                            if data._full and data._len < data._regain_size:
+                                data.do_regain()
                         continue
                     else:
+                        if data._full and data._len < data._regain_size:
+                            data.do_regain()
                         return False
                 except socket.error as e:
                     if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                         self._error(e)
+                    if data._full and data._len < data._regain_size:
+                        data.do_regain()
                     return False
 
             if self._write_handler:
@@ -417,9 +415,13 @@ class Socket(event.EventEmitter):
             try:
                 self._wbuffers.socket_send(self._socket.fileno())
                 if self._wbuffers:
+                    if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
+                        self._wbuffers.do_regain()
                     return False
             except socket.error as e:
                 self._error(e)
+                if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
+                    self._wbuffers.do_regain()
                 return False
 
             if self._write_handler:
@@ -427,6 +429,9 @@ class Socket(event.EventEmitter):
                 self._write_handler = False
             if self._state == STATE_CLOSING:
                 self.close()
+
+            if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
+                self._wbuffers.do_regain()
             return True
 
     def write(self, data):
@@ -434,16 +439,14 @@ class Socket(event.EventEmitter):
             if data._len <= 0:
                 return False
 
-            if self._wbuffers is None:
+            if not self._wbuffers:
                 self._wbuffers = data
             else:
-                buf = data.next()
-                while buf:
-                    self._wbuffers.write(buf)
-                    buf = data.next()
+                while data:
+                    self._wbuffers.write(data.next())
         else:
             if self._wbuffers is None:
-                self._wbuffers = Buffer()
+                self._wbuffers = Buffer(max_buffer_size = self._max_buffer_size)
             else:
                 self._wbuffers.write(data)
 

@@ -15,21 +15,27 @@ except:
     MAX_BUFFER_SIZE = 4 * 1024 * 1024
 
 try:
-    import cbuffer
-    BaseBuffer = cbuffer.Buffer
+    if not os.environ.get("SEVENT_NOUSE_CBUFFER", False):
+        from . import cbuffer
+        BaseBuffer = cbuffer.Buffer
+    else:
+        cbuffer = None
 except ImportError:
     cbuffer = None
 
+if cbuffer is None:
     class BaseBuffer(object):
         def __init__(self):
             self._buffer = b''
+            self._buffer_odata = None
             self._buffer_len = 0
             self._buffers = deque()
+            self._buffers_odata = deque()
             self._len = 0
             self._buffer_index = 0
 
         def join(self):
-            if self._buffer_len - self._buffer_index < self._len:
+            if self._buffer_index > 0 or self._buffer_len - self._buffer_index < self._len:
                 if self._buffer_index < self._buffer_len:
                     self._buffers.appendleft(self._buffer[self._buffer_index:])
                 if len(self._buffers) > 1:
@@ -37,22 +43,24 @@ except ImportError:
                     self._buffers.clear()
                 else:
                     data = self._buffers.popleft()
+                if self._buffers_odata:
+                    self._buffer_odata = self._buffers_odata[-1]
+                    self._buffers_odata.clear()
                 self._buffer = data
                 self._buffer_len = len(data)
                 self._buffer_index = 0
             return self._buffer
 
-        def write(self, data):
+        def write(self, data, odata = None):
             if self._buffer_len > 0:
                 self._buffers.append(data)
+                self._buffers_odata.append(odata)
                 self._len += len(data)
             else:
                 self._buffer = data
+                self._buffer_odata = odata
                 self._buffer_len = len(data)
                 self._len += self._buffer_len
-
-            if not self._full and self._len > self._drain_size:
-                self.do_drain()
             return self
 
         def read(self, size=-1):
@@ -64,11 +72,9 @@ except ImportError:
                     buffer = self._buffer[self._buffer_index:]
                 else:
                     buffer = self._buffer
-                self._buffer_index, self._buffer_len, self._buffer, self._len = 0, 0, b'', 0
-
-                if self._full and self._len < self._regain_size:
-                    self.do_regain()
-                return buffer
+                buffer_odata = self._buffer_odata
+                self._buffer_index, self._buffer_len, self._buffer, self._buffer_odata, self._len = 0, 0, b'', None, 0
+                return (buffer, buffer_odata) if buffer_odata else buffer
 
             if self._len < size:
                 return b""
@@ -80,18 +86,17 @@ except ImportError:
             else:
                 data = self._buffer[self._buffer_index: self._buffer_index + size]
                 self._buffer_index += size
+            buffer_odata = self._buffer_odata
             self._len -= size
 
             if self._buffer_index >= self._buffer_len:
                 if self._len > 0:
                     self._buffer = self._buffers.popleft()
+                    self._buffer_odata = self._buffers_odata.popleft()
                     self._buffer_index, self._buffer_len = 0, len(self._buffer)
                 else:
-                    self._buffer_index, self._buffer_len, self._buffer = 0, 0, b''
-
-            if self._full and self._len < self._regain_size:
-                self.do_regain()
-            return data
+                    self._buffer_index, self._buffer_len, self._buffer, self._buffers_odata = 0, 0, b'', None
+            return (data, buffer_odata) if buffer_odata else data
 
         def next(self):
             if self._buffer_index > 0:
@@ -100,15 +105,36 @@ except ImportError:
             else:
                 data = self._buffer
                 self._len -= self._buffer_len
+            buffer_odata = self._buffer_odata
 
             if self._len > 0:
                 self._buffer = self._buffers.popleft()
+                self._buffer_odata = self._buffers_odata.pop()
                 self._buffer_index, self._buffer_len = 0, len(self._buffer)
             else:
-                self._buffer_index, self._buffer_len, self._buffer = 0, 0, b''
-            if self._full and self._len < self._regain_size:
-                self.do_regain()
-            return data
+                self._buffer_index, self._buffer_len, self._buffer, self._buffer_odata = 0, 0, b'', None
+            return (data, buffer_odata) if buffer_odata else data
+
+        def __len__(self):
+            return self._len
+
+        def __str__(self):
+            buffer = self.join()
+
+            if is_py3:
+                return ensure_unicode(buffer)
+            return (buffer, self._buffer_odata) if self._buffer_odata else buffer
+
+        def __nonzero__(self):
+            return self._len > 0
+
+        def __getitem__(self, index):
+            buffer = self.join()
+            return (buffer.__getitem__(index), self._buffer_odata) if self._buffer_odata else buffer.__getitem__(index)
+
+        def __hash__(self):
+            buffer = self.join()
+            return buffer.__hash__()
 
 class Buffer(EventEmitter, BaseBuffer):
     def __init__(self, max_buffer_size = None):
@@ -117,7 +143,6 @@ class Buffer(EventEmitter, BaseBuffer):
 
         self._loop = current()
         self._full = False
-        self._writting = False
         self._drain_size = max_buffer_size or MAX_BUFFER_SIZE
         self._regain_size = self._drain_size * 0.5
         self._drain_time = time.time()
@@ -145,22 +170,26 @@ class Buffer(EventEmitter, BaseBuffer):
         self._regain_time = time.time()
         self.emit("regain", self)
 
-    def __len__(self):
-        return self._len
+    def write(self, data, odata = None):
+        BaseBuffer.write(self, data, odata)
 
-    def __str__(self):
-        buffer = self.join()
+        if not self._full and self._len > self._drain_size:
+            self.do_drain()
+        return self
 
-        if is_py3:
-            return ensure_unicode(buffer)
-        return buffer
+    def read(self, size=-1):
+        data = BaseBuffer.read(self, size)
 
-    def __nonzero__(self):
-        return self._len > 0
+        if self._full and self._len < self._regain_size:
+            self.do_regain()
+        return data
 
-    def __getitem__(self, index):
-        buffer = self.join()
-        return buffer.__getitem__(index)
+    def next(self):
+        data = BaseBuffer.next(self)
+
+        if self._full and self._len < self._regain_size:
+            self.do_regain()
+        return data
 
     def __iter__(self):
         while True:
@@ -173,7 +202,3 @@ class Buffer(EventEmitter, BaseBuffer):
         buffer = self.join()
 
         return buffer.__contains__(item)
-
-    def __hash__(self):
-        buffer = self.join()
-        return buffer.__hash__()

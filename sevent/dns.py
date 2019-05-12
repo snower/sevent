@@ -183,12 +183,12 @@ class DNSResolver(EventEmitter):
         if hostname in self._hostname_status:
             del self._hostname_status[hostname]
 
-    def on_data(self, socket, address, buffer):
-        if address[0] not in self._servers:
+    def on_data(self, socket, buffer):
+        while buffer:
+            data, address = buffer.next()
+            if address[0] not in self._servers:
                 return
 
-        data = buffer.next()
-        while data:
             response = self.parse_response(data)
             if response and response.hostname:
                 hostname = response.hostname
@@ -215,8 +215,6 @@ class DNSResolver(EventEmitter):
                     if type == QTYPE_A or (hostname_status == 1 and type == QTYPE_AAAA):
                         self.call_callback(hostname, ip)
 
-            data = buffer.next()
-
     def send_req(self, hostname, qtype=None):
         server_index = self._hostname_server_index.get(hostname, -1)
         if server_index + 1 < len(self._servers):
@@ -229,11 +227,11 @@ class DNSResolver(EventEmitter):
                 if server_family == socket.AF_INET6:
                     if self._socket6 is None:
                         self.create_socket6()
-                    self._socket6.write((server, 53), req)
+                    self._socket6.write((req, (server, 53)))
                 else:
                     if self._socket is None:
                         self.create_socket()
-                    self._socket.write((server, 53), req)
+                    self._socket.write((req, (server, 53)))
             self._hostname_server_index[hostname] = server_index + 1
             self._hostname_status[hostname] = 0
 

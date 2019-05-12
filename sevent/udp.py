@@ -6,7 +6,6 @@ import os
 import logging
 import socket
 import errno
-from collections import deque, defaultdict
 from .event import EventEmitter
 from .loop import instance, MODE_IN, MODE_OUT
 from .dns import DNSResolver
@@ -50,11 +49,9 @@ class Socket(EventEmitter):
 
         self._create_socket()
 
-        def init_buffer():
-            return Buffer(max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE)
-
-        self._rbuffers = defaultdict(init_buffer)
-        self._wbuffers = deque()
+        self._max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE
+        self._rbuffers = Buffer(max_buffer_size = self._max_buffer_size)
+        self._wbuffers = None
         self._address_cache = {}
         self._state = STATE_STREAMING
 
@@ -158,20 +155,19 @@ class Socket(EventEmitter):
             self._read()
 
     def _read(self):
-        recv_addresses = set([])
+        last_data_len = self._rbuffers._len
         while self._read_handler:
             try:
                 data, address = self._socket.recvfrom(self.RECV_BUFFER_SIZE)
-                self._rbuffers[address].write(data)
-                recv_addresses.add(address)
+                self._rbuffers.write(data, address)
             except socket.error as e:
                 if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                     break
                 else:
                     return self._error(e)
 
-        for address in list(recv_addresses):
-            self._loop.add_async(self.emit, 'data', self, address, self._rbuffers[address])
+        if last_data_len < self._rbuffers._len:
+            self._loop.add_async(self.emit, 'data', self, self._rbuffers)
 
     def _write_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):
@@ -179,10 +175,11 @@ class Socket(EventEmitter):
                 if self._has_drain_event:
                     self._loop.add_async(self.emit, 'drain', self)
 
-    def _write(self):
-        while self._wbuffers:
-            address, data = self._wbuffers[0]
-            if data.__class__ == Buffer:
+    if cbuffer is None:
+        def _write(self):
+            while self._wbuffers:
+                data = self._wbuffers
+                address = self._wbuffers._buffer_odata
                 try:
                     if data._buffer_index > 0:
                         r = self._socket.sendto(memoryview(data._buffer)[data._buffer_index:], address)
@@ -194,11 +191,10 @@ class Socket(EventEmitter):
                     if data._buffer_index >= data._buffer_len:
                         if data._len > 0:
                             data._buffer = data._buffers.popleft()
+                            data._buffer_odata = data._buffers_odata.popleft()
                             data._buffer_index, data._buffer_len = 0, len(data._buffer)
                         else:
-                            data._buffer_index, data._buffer_len, data._buffer = 0, 0, b''
-                            data._writting = False
-                            self._wbuffers.popleft()
+                            data._buffer_index, data._buffer_len, data._buffer, data._buffer_odata = 0, 0, b'', None
                             if data._full and data._len < data._regain_size:
                                 data.do_regain()
                         continue
@@ -212,42 +208,56 @@ class Socket(EventEmitter):
                     if data._full and data._len < data._regain_size:
                         data.do_regain()
                     return False
-            else:
+
+            if self._write_handler:
+                self._loop.remove_fd(self._socket, self._write_cb)
+                self._write_handler = False
+
+            if self._state == STATE_CLOSING:
+                self.close()
+            return True
+    else:
+        def _write(self):
+            while self._wbuffers:
+                data, address = self._wbuffers._buffer
                 try:
-                    self._wbuffers.popleft()
-                    r = self._socket.sendto(data, address)
-                    if r < len(data):
-                        self._wbuffers.appendleft((address, data[r:]))
+                    if self._wbuffers._buffer_index > 0:
+                        r = self._socket.sendto(memoryview(data)[self._wbuffers._buffer_index:], address)
+                    else:
+                        r = self._socket.sendto(data, address)
+                    if r > 0:
+                        self._wbuffers.read(r)
+
+                    if self._wbuffers._buffer_index < self._wbuffers._buffer_len:
+                        if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
+                            self._wbuffers.do_regain()
                         return False
                 except socket.error as e:
-                    if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                        self._wbuffers.appendleft((address, data))
-                    else:
+                    if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
                         self._error(e)
+                    if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
+                        self._wbuffers.do_regain()
                     return False
 
-        if self._write_handler:
-            self._loop.remove_fd(self._socket, self._write_cb)
-            self._write_handler = False
+            if self._write_handler:
+                self._loop.remove_fd(self._socket, self._write_cb)
+                self._write_handler = False
 
-        if self._state == STATE_CLOSING:
-            self.close()
-        return True
+            if self._state == STATE_CLOSING:
+                self.close()
 
-    def write(self, address, data):
+            if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
+                self._wbuffers.do_regain()
+            return True
+
+    def write(self, data):
         if self._state not in (STATE_STREAMING, STATE_BINDING):
             return False
 
-        if data.__class__ == Buffer:
-            if data._writting or data._len <= 0:
-                return False
-            data._writting = True
-
-        def do_write(address):
+        def do_write():
             if self._state not in (STATE_STREAMING, STATE_BINDING):
                 return False
 
-            self._wbuffers.append((address, data))
             if not self._write_handler:
                 if self._write():
                     if self._has_drain_event:
@@ -258,17 +268,34 @@ class Socket(EventEmitter):
                     self._error(Exception("write data add fd error"))
             return False
 
+        if data.__class__ == Buffer:
+            if data._len <= 0:
+                return False
+
+            if not self._wbuffers:
+                self._wbuffers = data
+            else:
+                while data:
+                    self._wbuffers.write(*data.next())
+            return do_write()
+        else:
+            if self._wbuffers is None:
+                self._wbuffers = Buffer(max_buffer_size = self._max_buffer_size)
+
+        data, address = data
         if address[0] not in self._address_cache:
             def resolve_callback(hostname, ip):
                 if not ip:
                     return self._error(Exception('can not resolve hostname %s' % str(address)))
                 self._address_cache[hostname] = ip
-                do_write((ip, address[1]))
+                self._wbuffers.write(data, (ip, address[1]))
+                do_write()
             self._dns_resolver.resolve(address[0], resolve_callback)
             return False
         else:
             ip = self._address_cache[address[0]]
-            return do_write((ip, address[1]))
+            self._wbuffers.write(data, (ip, address[1]))
+            return do_write()
 
 class Socket6(Socket):
     def _create_socket(self):
@@ -291,17 +318,6 @@ class Server(Socket):
 
         self._state = STATE_BINDING
         self._dns_resolver.resolve(address[0], do_bind)
-        self._loop.add_timeout(120, self.on_check_rbuffer_timeout)
-        
-    def on_check_rbuffer_timeout(self):
-        if self._state == STATE_CLOSED:
-            return
-        
-        for address in self._rbuffers.keys():
-            if not self._rbuffers[address]:
-                del self._rbuffers[address]
-                
-        self._loop.add_timeout(120, self.on_check_rbuffer_timeout)
 
     def __del__(self):
         self.close()
