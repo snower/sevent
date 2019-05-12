@@ -552,12 +552,13 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
         BufferQueue* queue;
         if(buffer_queue_fast_buffer_index > 0) {
             queue = buffer_queue_fast_buffer[--buffer_queue_fast_buffer_index];
+            queue->flag = 0x01;
         } else {
             queue = (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue));
             if(queue == NULL) {
                 return PyErr_NoMemory();
             }
-            queue->flag = 0;
+            queue->flag = 0x01;
             queue->next = NULL;
             queue->odata = NULL;
         }

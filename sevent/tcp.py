@@ -321,10 +321,16 @@ class Socket(event.EventEmitter):
     else:
         def _read(self):
             try:
-                return self._rbuffers.socket_recv(self._fileno)
+                r = self._rbuffers.socket_recv(self._fileno)
             except Exception as e:
                 self._error(e)
+                if not self._rbuffers._full and self._rbuffers._len > self._rbuffers._drain_size:
+                    self._rbuffers.do_drain()
                 return False
+
+            if not self._rbuffers._full and self._rbuffers._len > self._rbuffers._drain_size:
+                self._rbuffers.do_drain()
+            return r
 
     def _write_cb(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
@@ -384,9 +390,10 @@ class Socket(event.EventEmitter):
                     if data._buffer_index >= data._buffer_len:
                         if data._len > 0:
                             data._buffer = data._buffers.popleft()
+                            data._buffer_odata = data._buffers_odata.popleft()
                             data._buffer_index, data._buffer_len = 0, len(data._buffer)
                         else:
-                            data._buffer_index, data._buffer_len, data._buffer = 0, 0, b''
+                            data._buffer_index, data._buffer_len, data._buffer, data._buffer_odata = 0, 0, b'', None
                             if data._full and data._len < data._regain_size:
                                 data.do_regain()
                         continue
@@ -448,8 +455,7 @@ class Socket(event.EventEmitter):
                 else:
                     if self._wbuffers is None:
                         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
-                    else:
-                        self._wbuffers.write(data)
+                    self._wbuffers.write(data)
 
                 if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
                     return self._connect_and_write()
