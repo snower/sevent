@@ -468,8 +468,7 @@ class Socket(event.EventEmitter):
         else:
             if self._wbuffers is None:
                 self._wbuffers = Buffer(max_buffer_size = self._max_buffer_size)
-            else:
-                self._wbuffers.write(data)
+            self._wbuffers.write(data)
 
         if not self._write_handler:
             self._wbuffers._writing = True
