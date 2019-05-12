@@ -10,6 +10,11 @@ from .loop import current
 from .utils import ensure_unicode, is_py3
 
 try:
+    RECV_BUFFER_SIZE = int(os.environ.get("SEVENT_RECV_BUFFER_SIZE", 0))
+except:
+    RECV_BUFFER_SIZE = 0
+
+try:
     MAX_BUFFER_SIZE = int(os.environ.get("SEVENT_MAX_BUFFER_SIZE", 4 * 1024 * 1024))
 except:
     MAX_BUFFER_SIZE = 4 * 1024 * 1024
@@ -18,10 +23,15 @@ try:
     if not os.environ.get("SEVENT_NOUSE_CBUFFER", False):
         from . import cbuffer
         BaseBuffer = cbuffer.Buffer
+        if RECV_BUFFER_SIZE:
+            try:
+                cbuffer.socket_set_recv_size(RECV_BUFFER_SIZE)
+            except: pass
     else:
         cbuffer = None
 except ImportError:
     cbuffer = None
+    RECV_BUFFER_SIZE = RECV_BUFFER_SIZE or 8 * 1024 - 64
 
 if cbuffer is None:
     class BaseBuffer(object):

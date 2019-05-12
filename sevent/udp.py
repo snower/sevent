@@ -9,17 +9,12 @@ import errno
 from .event import EventEmitter
 from .loop import instance, MODE_IN, MODE_OUT
 from .dns import DNSResolver
-from .buffer import Buffer, cbuffer
+from .buffer import Buffer, cbuffer, RECV_BUFFER_SIZE
 
 STATE_STREAMING = 0x01
 STATE_BINDING = 0x02
 STATE_CLOSING = 0x04
 STATE_CLOSED = 0x06
-
-try:
-    RECV_BUFFER_SIZE = int(os.environ.get("SEVENT_RECV_BUFFER_SIZE", 8 * 1024 - 64))
-except:
-    RECV_BUFFER_SIZE = 8 * 1024 - 64
 
 class Socket(EventEmitter):
     MAX_BUFFER_SIZE = None

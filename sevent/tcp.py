@@ -6,7 +6,7 @@ import socket
 import errno
 from . import event
 from .loop import instance, MODE_IN, MODE_OUT
-from .buffer import Buffer, cbuffer
+from .buffer import Buffer, cbuffer, RECV_BUFFER_SIZE
 from .dns import DNSResolver
 
 MSG_FASTOPEN = 0x20000000
@@ -17,11 +17,6 @@ STATE_STREAMING = 0x04
 STATE_LISTENING = 0x08
 STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
-
-try:
-    RECV_BUFFER_SIZE = int(os.environ.get("SEVENT_RECV_BUFFER_SIZE", 8 * 1024 - 64))
-except:
-    RECV_BUFFER_SIZE = 8 * 1024 - 64
 
 class Socket(event.EventEmitter):
     MAX_BUFFER_SIZE = None

@@ -816,6 +816,11 @@ cbuffer_socket_set_recv_size(PyObject *self, PyObject *args) {
         return NULL;
     }
 
+    if(bytes_fast_buffer_index > 0) {
+        PyErr_SetString(PyExc_RuntimeError, "The fast bytes is inited");
+        return NULL;
+    }
+
     socket_recv_size = recv_size;
     Py_RETURN_NONE;
 }
