@@ -36,7 +36,7 @@ class Socket(event.EventEmitter):
         super(Socket, self).__init__()
         self._loop =loop or instance()
         self._socket = socket
-        self._fileno = 0
+        self._fileno = socket.fileno() if socket else 0
         self._address = address
         self._dns_resolver = dns_resolver or DNSResolver.default()
         self._connect_handler = False
@@ -199,7 +199,6 @@ class Socket(event.EventEmitter):
 
         self._state = STATE_STREAMING
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
-        self._fileno = self._socket.fileno()
         self._rbuffers.on("drain", lambda _: self.drain())
         self._rbuffers.on("regain", lambda _: self.regain())
         self._loop.add_async(self.emit, 'connect', self)
@@ -233,6 +232,7 @@ class Socket(event.EventEmitter):
                 if addrinfo:
                     addr = addrinfo[0]
                     self._socket = socket.socket(addr[0], addr[1], addr[2])
+                    self._fileno = self._socket.fileno()
                     self._socket.setblocking(False)
                     self._address = addr[4]
                     self._is_resolve = True

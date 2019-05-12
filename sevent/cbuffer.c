@@ -600,6 +600,10 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
             return PyErr_SetFromErrno(PyExc_OSError);
         }
 
+        if(result == 0) {
+            return PyInt_FromLong(send_len);
+        }
+
         objbuf->buffer_offset += result;
         Py_SIZE(objbuf) -= result;
         send_len += result;
