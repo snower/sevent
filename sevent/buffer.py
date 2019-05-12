@@ -183,7 +183,7 @@ class Buffer(EventEmitter, BaseBuffer):
         self.emit("regain", self)
 
     def write(self, data, odata = None):
-        BaseBuffer.write(self, data, odata)
+        BaseBuffer.write(self, data, odata) if odata else BaseBuffer.write(self, data)
 
         if not self._full and self._len > self._drain_size:
             self.do_drain()
