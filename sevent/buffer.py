@@ -31,7 +31,8 @@ try:
         cbuffer = None
 except ImportError:
     cbuffer = None
-    RECV_BUFFER_SIZE = RECV_BUFFER_SIZE or 8 * 1024 - 64
+    
+RECV_BUFFER_SIZE = RECV_BUFFER_SIZE or 8 * 1024 - 64
 
 if cbuffer is None:
     class BaseBuffer(object):
