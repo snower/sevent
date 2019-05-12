@@ -322,7 +322,7 @@ class Socket(event.EventEmitter):
         def _read(self):
             try:
                 return self._rbuffers.socket_recv(self._fileno)
-            except socket.error as e:
+            except Exception as e:
                 self._error(e)
                 return False
 
@@ -416,7 +416,7 @@ class Socket(event.EventEmitter):
                     if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
                         self._wbuffers.do_regain()
                     return False
-            except socket.error as e:
+            except Exception as e:
                 self._error(e)
                 if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
                     self._wbuffers.do_regain()
