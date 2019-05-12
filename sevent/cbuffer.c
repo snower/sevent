@@ -61,7 +61,7 @@ typedef struct {
     BufferQueue* buffer_tail;
 } BufferObject;
 
-int join_impl(BufferObject *objbuf)
+int join_impl(register BufferObject *objbuf)
 {
 
     BufferQueue* last_queue;
@@ -264,6 +264,10 @@ Buffer_write(register BufferObject *objbuf, PyObject *args)
         return NULL;
     }
 
+    if(Py_SIZE(data) <= 0) {
+        Py_RETURN_NONE;
+    }
+
     BufferQueue* queue;
     if(buffer_queue_fast_buffer_index > 0) {
         queue = buffer_queue_fast_buffer[--buffer_queue_fast_buffer_index];
@@ -330,7 +334,7 @@ Buffer_read(register BufferObject *objbuf, PyObject *args)
         return odata != NULL ? pdata : (PyObject*)buffer;
     }
 
-    if(Py_SIZE(objbuf) < read_size) {
+    if(read_size == 0 || Py_SIZE(objbuf) < read_size) {
         return PyBytes_FromStringAndSize(0, 0);
     }
 

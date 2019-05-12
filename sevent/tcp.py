@@ -36,6 +36,7 @@ class Socket(event.EventEmitter):
         super(Socket, self).__init__()
         self._loop =loop or instance()
         self._socket = socket
+        self._fileno = 0
         self._address = address
         self._dns_resolver = dns_resolver or DNSResolver.default()
         self._connect_handler = False
@@ -198,6 +199,7 @@ class Socket(event.EventEmitter):
 
         self._state = STATE_STREAMING
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+        self._fileno = self._socket.fileno()
         self._rbuffers.on("drain", lambda _: self.drain())
         self._rbuffers.on("regain", lambda _: self.regain())
         self._loop.add_async(self.emit, 'connect', self)
@@ -324,7 +326,7 @@ class Socket(event.EventEmitter):
     else:
         def _read(self):
             try:
-                return self._rbuffers.socket_recv(self._socket.fileno())
+                return self._rbuffers.socket_recv(self._fileno)
             except socket.error as e:
                 self._error(e)
                 return False
@@ -404,6 +406,7 @@ class Socket(event.EventEmitter):
                         data.do_regain()
                     return False
 
+            self._wbuffers._writing = False
             if self._write_handler:
                 self._loop.remove_fd(self._socket, self._write_cb)
                 self._write_handler = False
@@ -413,7 +416,7 @@ class Socket(event.EventEmitter):
     else:
         def _write(self):
             try:
-                self._wbuffers.socket_send(self._socket.fileno())
+                self._wbuffers.socket_send(self._fileno)
                 if self._wbuffers:
                     if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
                         self._wbuffers.do_regain()
@@ -424,6 +427,7 @@ class Socket(event.EventEmitter):
                     self._wbuffers.do_regain()
                 return False
 
+            self._wbuffers._writing = False
             if self._write_handler:
                 self._loop.remove_fd(self._socket, self._write_cb)
                 self._write_handler = False
@@ -435,13 +439,35 @@ class Socket(event.EventEmitter):
             return True
 
     def write(self, data):
+        if self._state != STATE_STREAMING:
+            if self._state == STATE_CONNECTING:
+                if data.__class__ == Buffer:
+                    if data._len <= 0 or data._writing:
+                        return False
+
+                    if not self._wbuffers:
+                        self._wbuffers = data
+                    elif self._wbuffers != data:
+                        while data:
+                            self._wbuffers.write(data.next())
+                else:
+                    if self._wbuffers is None:
+                        self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
+                    else:
+                        self._wbuffers.write(data)
+
+                if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
+                    return self._connect_and_write()
+                return False
+            assert self._state == STATE_STREAMING, "not connected"
+
         if data.__class__ == Buffer:
-            if data._len <= 0:
+            if data._len <= 0 or data._writing:
                 return False
 
             if not self._wbuffers:
                 self._wbuffers = data
-            else:
+            elif self._wbuffers != data:
                 while data:
                     self._wbuffers.write(data.next())
         else:
@@ -450,14 +476,8 @@ class Socket(event.EventEmitter):
             else:
                 self._wbuffers.write(data)
 
-        if self._state != STATE_STREAMING:
-            if self._state == STATE_CONNECTING:
-                if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
-                    return self._connect_and_write()
-                return False
-            assert self._state == STATE_STREAMING, "not connected"
-
         if not self._write_handler:
+            self._wbuffers._writing = True
             if self._write():
                 if self._has_drain_event:
                     self._loop.add_async(self.emit, 'drain', self)

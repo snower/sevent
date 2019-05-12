@@ -209,6 +209,7 @@ class Socket(EventEmitter):
                         data.do_regain()
                     return False
 
+            self._wbuffers._writing = False
             if self._write_handler:
                 self._loop.remove_fd(self._socket, self._write_cb)
                 self._write_handler = False
@@ -239,6 +240,7 @@ class Socket(EventEmitter):
                         self._wbuffers.do_regain()
                     return False
 
+            self._wbuffers._writing = False
             if self._write_handler:
                 self._loop.remove_fd(self._socket, self._write_cb)
                 self._write_handler = False
@@ -259,6 +261,7 @@ class Socket(EventEmitter):
                 return False
 
             if not self._write_handler:
+                self._wbuffers._writing = True
                 if self._write():
                     if self._has_drain_event:
                         self._loop.add_async(self.emit, 'drain', self)
@@ -269,12 +272,12 @@ class Socket(EventEmitter):
             return False
 
         if data.__class__ == Buffer:
-            if data._len <= 0:
+            if data._len <= 0 or data._writing:
                 return False
 
             if not self._wbuffers:
                 self._wbuffers = data
-            else:
+            elif self._wbuffers != data:
                 while data:
                     self._wbuffers.write(*data.next())
             return do_write()
