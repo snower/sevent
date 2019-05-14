@@ -106,7 +106,7 @@ if cbuffer is None:
                     self._buffer_odata = self._buffers_odata.popleft()
                     self._buffer_index, self._buffer_len = 0, len(self._buffer)
                 else:
-                    self._buffer_index, self._buffer_len, self._buffer, self._buffers_odata = 0, 0, b'', None
+                    self._buffer_index, self._buffer_len, self._buffer, self._buffer_odata = 0, 0, b'', None
             return (data, buffer_odata) if buffer_odata else data
 
         def next(self):
@@ -120,7 +120,7 @@ if cbuffer is None:
 
             if self._len > 0:
                 self._buffer = self._buffers.popleft()
-                self._buffer_odata = self._buffers_odata.pop()
+                self._buffer_odata = self._buffers_odata.popleft()
                 self._buffer_index, self._buffer_len = 0, len(self._buffer)
             else:
                 self._buffer_index, self._buffer_len, self._buffer, self._buffer_odata = 0, 0, b'', None
