@@ -6,8 +6,7 @@
 #   include <sys/socket.h>
 # endif
 
-#define CHECK_ERRNO(expected) \
-    (errno == expected)
+#define CHECK_ERRNO(expected) (errno == expected)
 
 typedef struct BufferQueue{
     struct BufferQueue* next;
@@ -100,7 +99,7 @@ int join_impl(register BufferObject *objbuf)
         }
 
         buf_len = Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset;
-        memcpy(ob_sval, ((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval + objbuf->buffer_offset, buf_len);
+        memcpy(ob_sval, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, buf_len);
         ob_sval += buf_len;
         objbuf->buffer_offset = 0;
 
@@ -112,7 +111,7 @@ int join_impl(register BufferObject *objbuf)
 
     while(objbuf->buffer_head != NULL){
         buf_len = Py_SIZE(objbuf->buffer_head->buffer);
-        memcpy(ob_sval, ((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval, buf_len);
+        memcpy(ob_sval, objbuf->buffer_head->buffer->ob_sval, buf_len);
         ob_sval += buf_len;
 
         last_queue = objbuf->buffer_head;
@@ -146,9 +145,7 @@ int join_impl(register BufferObject *objbuf)
 }
 
 static void
-Buffer_dealloc(BufferObject* self) {
-    BufferObject* objbuf = (BufferObject*)self;
-
+Buffer_dealloc(register BufferObject* objbuf) {
     BufferQueue* last_queue;
     while (objbuf->buffer_head != NULL) {
         last_queue = objbuf->buffer_head;
@@ -159,21 +156,21 @@ Buffer_dealloc(BufferObject* self) {
     objbuf->buffer_tail = NULL;
     Py_SIZE(objbuf) = 0;
     objbuf->buffer_offset = 0;
-    self->ob_type->tp_free((PyObject*)self);
+    objbuf->ob_type->tp_free((PyObject*)objbuf);
 }
 
 static PyObject*
-Buffer_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    BufferObject* self;
-    self = (BufferObject *)type->tp_alloc(type, 0);
-    return (PyObject*) self;
+Buffer_new(register PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    BufferObject* objbuf;
+    objbuf = (BufferObject *)type->tp_alloc(type, 0);
+    return (PyObject*) objbuf;
 }
 
 static int
-Buffer_init(BufferObject* self, PyObject* args, PyObject* kwds) {
-    self->buffer_offset = 0;
-    self->buffer_head = NULL;
-    self->buffer_tail = NULL;
+Buffer_init(register BufferObject* objbuf, PyObject* args, PyObject* kwds) {
+    objbuf->buffer_offset = 0;
+    objbuf->buffer_head = NULL;
+    objbuf->buffer_tail = NULL;
     return 0;
 }
 
@@ -186,11 +183,10 @@ Buffer_slice(register BufferObject *objbuf, register Py_ssize_t i, register Py_s
     if (i < 0)
         i = 0;
     if (j < 0)
-        j = 0; /* Avoid signed/unsigned bug in next line */
+        j = 0;
     if (j > Py_SIZE(objbuf))
         j = Py_SIZE(objbuf);
     if (i == 0 && j == Py_SIZE(objbuf)) {
-        /* It's the same as a */
         PyObject* data = (PyObject*)objbuf->buffer_head->buffer;
         if(objbuf->buffer_head->odata != NULL) {
             return PyTuple_Pack(2, data, objbuf->buffer_head->odata);
@@ -201,14 +197,13 @@ Buffer_slice(register BufferObject *objbuf, register Py_ssize_t i, register Py_s
     if (j < i)
         j = i;
     if(objbuf->buffer_head->odata != NULL) {
-        return PyTuple_Pack(2, PyString_FromStringAndSize(((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval + i, j-i),
-                objbuf->buffer_head->odata);
+        return PyTuple_Pack(2, PyString_FromStringAndSize(objbuf->buffer_head->buffer->ob_sval + i, j-i), objbuf->buffer_head->odata);
     }
-    return PyString_FromStringAndSize(((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval + i, j-i);
+    return PyString_FromStringAndSize(objbuf->buffer_head->buffer->ob_sval + i, j-i);
 }
 
 static PyObject *
-Buffer_item(BufferObject *objbuf, register Py_ssize_t i)
+Buffer_item(register BufferObject *objbuf, register Py_ssize_t i)
 {
     if (join_impl(objbuf) != 0) {
         return PyErr_NoMemory();
@@ -221,10 +216,10 @@ Buffer_item(BufferObject *objbuf, register Py_ssize_t i)
     }
 
     if(objbuf->buffer_head->odata != NULL) {
-        return PyTuple_Pack(2, PyInt_FromLong(((PyBytesObject *) objbuf->buffer_head->buffer)->ob_sval[i]),
+        return PyTuple_Pack(2, PyInt_FromLong(objbuf->buffer_head->buffer->ob_sval[i]),
                             objbuf->buffer_head->odata);
     }
-    return PyInt_FromLong(((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval[i]);
+    return PyInt_FromLong(objbuf->buffer_head->buffer->ob_sval[i]);
 }
 
 static int
@@ -371,7 +366,7 @@ Buffer_read(register BufferObject *objbuf, PyObject *args)
 
         buf_len = Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset;
         buf_len = buf_len > read_size - buffer_size ? read_size - buffer_size : buf_len;
-        memcpy(buffer->ob_sval + buffer_size, ((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval + objbuf->buffer_offset, buf_len);
+        memcpy(buffer->ob_sval + buffer_size, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, buf_len);
         objbuf->buffer_offset += buf_len;
         buffer_size += buf_len;
         Py_SIZE(objbuf) -= buf_len;
@@ -398,7 +393,7 @@ Buffer_read(register BufferObject *objbuf, PyObject *args)
     while(buffer_size < read_size) {
         buf_len = Py_SIZE(objbuf->buffer_head->buffer);
         buf_len = buf_len > read_size - buffer_size ? read_size - buffer_size : buf_len;
-        memcpy(buffer->ob_sval + buffer_size, ((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval, buf_len);
+        memcpy(buffer->ob_sval + buffer_size, objbuf->buffer_head->buffer->ob_sval, buf_len);
         objbuf->buffer_offset += buf_len;
         buffer_size += buf_len;
         Py_SIZE(objbuf) -= buf_len;
@@ -441,7 +436,7 @@ Buffer_next(register BufferObject *objbuf, PyObject *args) {
         if (buffer == NULL)
             return PyErr_NoMemory();
 
-        memcpy(buffer->ob_sval, ((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval + objbuf->buffer_offset, buf_size);
+        memcpy(buffer->ob_sval, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, buf_size);
         Py_SIZE(objbuf) -= buf_size;
         objbuf->buffer_offset = 0;
         odata = objbuf->buffer_head->odata;
@@ -461,7 +456,7 @@ Buffer_next(register BufferObject *objbuf, PyObject *args) {
         return odata != NULL ? pdata : (PyObject*)buffer;
     }
 
-    buffer = (PyBytesObject*)objbuf->buffer_head->buffer;
+    buffer = objbuf->buffer_head->buffer;
     odata = objbuf->buffer_head->odata;
     if(odata != NULL) {
         pdata = PyTuple_Pack(2, buffer, odata);
@@ -593,7 +588,7 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
     BufferQueue* last_queue;
 
     while (objbuf->buffer_head != NULL) {
-        result = send(sock_fd, ((PyBytesObject*)objbuf->buffer_head->buffer)->ob_sval + objbuf->buffer_offset, Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset, 0);
+        result = send(sock_fd, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset, 0);
         if(result < 0) {
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
                 return PyInt_FromLong(send_len);
@@ -628,13 +623,11 @@ Buffer_buffer_getter(register BufferObject *objbuf, void *args) {
         return PyBytes_FromStringAndSize(0, 0);
     }
 
-    PyObject* data = (PyObject*)objbuf->buffer_head->buffer;
-    PyObject* odata = objbuf->buffer_head->odata;
-    if(odata != NULL) {
-        return PyTuple_Pack(2, data, odata);
+    if(objbuf->buffer_head->odata != NULL) {
+        return PyTuple_Pack(2, (PyObject*)objbuf->buffer_head->buffer, objbuf->buffer_head->odata);
     }
-    Py_INCREF(data);
-    return data;
+    Py_INCREF(objbuf->buffer_head->buffer);
+    return (PyObject*)objbuf->buffer_head->buffer;
 }
 
 static PyObject*
