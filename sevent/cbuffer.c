@@ -225,7 +225,11 @@ Buffer_item(register BufferObject *objbuf, register Py_ssize_t i)
         return PyTuple_Pack(2, PyInt_FromLong(objbuf->buffer_head->buffer->ob_sval[i]),
                             objbuf->buffer_head->odata);
     }
+#if PY_MAJOR_VERSION >= 3
     return PyInt_FromLong(objbuf->buffer_head->buffer->ob_sval[i]);
+#else
+    return PyBytes_FromStringAndSize(objbuf->buffer_head->buffer->ob_sval + i, 1);
+#endif
 }
 
 static int
@@ -694,14 +698,14 @@ static PyMethodDef Buffer_methods[] = {
 };
 
 static PySequenceMethods Buffer_as_sequence = {
-        (lenfunc)Buffer_length, /*sq_length*/
-        0,                      /*sq_concat*/
-        0,                      /*sq_repeat*/
-        (ssizeargfunc)Buffer_item,                      /*sq_item*/
-        (ssizessizeargfunc)Buffer_slice,                      /*sq_slice*/
-        0,                      /*sq_ass_item*/
-        0,                      /*sq_ass_slice*/
-        0                       /*sq_contains*/
+        (lenfunc)Buffer_length,             /*sq_length*/
+        0,                                  /*sq_concat*/
+        0,                                  /*sq_repeat*/
+        (ssizeargfunc)Buffer_item,          /*sq_item*/
+        (ssizessizeargfunc)Buffer_slice,    /*sq_slice*/
+        0,                                  /*sq_ass_item*/
+        0,                                  /*sq_ass_slice*/
+        0                                   /*sq_contains*/
 };
 
 static PyNumberMethods Buffer_as_number = {
