@@ -6,6 +6,12 @@
 #   include <sys/socket.h>
 # endif
 
+#if PY_MAJOR_VERSION >= 3
+#define PyInt_FromLong PyLong_FromLong
+#else
+#define PyInt_FromLong PyInt_FromLong
+#endif
+
 #define CHECK_ERRNO(expected) (errno == expected)
 
 typedef struct BufferQueue{
@@ -156,7 +162,7 @@ Buffer_dealloc(register BufferObject* objbuf) {
     objbuf->buffer_tail = NULL;
     Py_SIZE(objbuf) = 0;
     objbuf->buffer_offset = 0;
-    objbuf->ob_type->tp_free((PyObject*)objbuf);
+    ((PyObject*)objbuf)->ob_type->tp_free((PyObject*)objbuf);
 }
 
 static PyObject*
@@ -197,9 +203,9 @@ Buffer_slice(register BufferObject *objbuf, register Py_ssize_t i, register Py_s
     if (j < i)
         j = i;
     if(objbuf->buffer_head->odata != NULL) {
-        return PyTuple_Pack(2, PyString_FromStringAndSize(objbuf->buffer_head->buffer->ob_sval + i, j-i), objbuf->buffer_head->odata);
+        return PyTuple_Pack(2, PyBytes_FromStringAndSize(objbuf->buffer_head->buffer->ob_sval + i, j-i), objbuf->buffer_head->odata);
     }
-    return PyString_FromStringAndSize(objbuf->buffer_head->buffer->ob_sval + i, j-i);
+    return PyBytes_FromStringAndSize(objbuf->buffer_head->buffer->ob_sval + i, j-i);
 }
 
 static PyObject *
@@ -254,7 +260,7 @@ Buffer_write(register BufferObject *objbuf, PyObject *args)
         return NULL;
     }
 
-    if(!PyBytes_Check(data)) {
+    if(!PyBytes_CheckExact(data)) {
         PyErr_SetString(PyExc_TypeError, "The data must be a bytes");
         return NULL;
     }
@@ -662,7 +668,11 @@ Buffer_buffers_getter(register BufferObject *objbuf, void *args) {
 
 static PyMemberDef Buffer_members[] = {
         {"_buffer_index", T_INT, offsetof(BufferObject, buffer_offset), READONLY, "buffer_offset"},
+#if PY_MAJOR_VERSION >= 3
+        {"_len", T_INT, offsetof(PyVarObject, ob_size), READONLY, "buffer_len"},
+#else
         {"_len", T_INT, offsetof(BufferObject, ob_size), READONLY, "buffer_len"},
+#endif
         {NULL}  /* Sentinel */
 };
 
@@ -698,7 +708,9 @@ static PyNumberMethods Buffer_as_number = {
         0, //nb_add;
         0, //nb_subtract;
         0, //nb_multiply;
+#if PY_MAJOR_VERSION < 3
         0, //nb_divide;
+#endif
         0, //nb_remainder;
         0, //nb_divmod;
         0, //nb_power;
@@ -790,7 +802,7 @@ cbuffer_socket_send(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    if(!PyBytes_Check(data)) {
+    if(!PyBytes_CheckExact(data)) {
         PyErr_SetString(PyExc_TypeError, "The data must be a bytes");
         return NULL;
     }
@@ -833,26 +845,16 @@ static PyMethodDef module_methods[] =
         {NULL, NULL, 0, NULL}
 };
 
-PyMODINIT_FUNC
-initcbuffer()
-{
-    PyObject* m;
-    if (PyType_Ready(&BufferType) < 0) {
-        return;
-    }
-
-    m = Py_InitModule3("cbuffer", module_methods, "cbuffer");
-    if (m == NULL) {
-        return;
-    }
-
-    PyModule_AddObject(m, "Buffer", (PyObject*)&BufferType);
+int cbuffer_init(PyObject* m) {
+    Py_INCREF((PyObject *)&BufferType);
+    if (PyModule_AddObject(m, "Buffer", (PyObject *)&BufferType) != 0)
+        return -1;
 
     int init_buffer_queue_fast_buffer_count = BUFFER_QUEUE_FAST_BUFFER_COUNT / 3;
     while (buffer_queue_fast_buffer_index < init_buffer_queue_fast_buffer_count) {
         BufferQueue* buffer_queue = (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue));
         if(buffer_queue == NULL) {
-            return;
+            return 0;
         }
 
         buffer_queue->next = NULL;
@@ -862,9 +864,54 @@ initcbuffer()
         buffer_queue_fast_buffer[buffer_queue_fast_buffer_index] = buffer_queue;
         buffer_queue_fast_buffer_index++;
     }
+    return 0;
 }
+
+#if PY_MAJOR_VERSION >= 3
+static struct PyModuleDef cbuffermodule = {
+        PyModuleDef_HEAD_INIT,
+        "cbuffer",
+        "cbuffer",
+        -1,
+        module_methods,
+        NULL,
+        NULL,
+        NULL,
+        NULL
+};
 
 PyMODINIT_FUNC
 PyInit_cbuffer() {
-    return initcbuffer();
+    PyObject *m;
+    if (PyType_Ready(&BufferType) < 0) {
+        return NULL;
+    }
+
+    m = PyModule_Create(&cbuffermodule);
+    if (m == NULL)
+        return NULL;
+
+    if (cbuffer_init(m) != 0) {
+        return NULL;
+    }
+
+    return m;
 }
+#else
+PyMODINIT_FUNC
+initcbuffer() {
+    PyObject *m;
+    if (PyType_Ready(&BufferType) < 0) {
+        return;
+    }
+
+    m = Py_InitModule3("cbuffer", module_methods, "cbuffer");
+    if (m == NULL) {
+        return;
+    }
+
+    if (cbuffer_init(m) != 0) {
+        return;
+    }
+}
+#endif
