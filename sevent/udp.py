@@ -2,7 +2,6 @@
 # 2014/12/28
 # create by: snower
 
-import os
 import logging
 import socket
 import errno
@@ -105,7 +104,7 @@ class Socket(EventEmitter):
 
     def end(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
-            if not self._wbuffers:
+            if not self._write_handler:
                 self.close()
             else:
                 self._state = STATE_CLOSING
@@ -122,7 +121,10 @@ class Socket(EventEmitter):
         self._socket.close()
         self._state = STATE_CLOSED
         def on_close():
-            self.emit_close(self)
+            try:
+                self.emit_close(self)
+            except Exception as e:
+                logging.exception("tcp emit close error:%s", e)
             self.remove_all_listeners()
             self._rbuffers = None
             self._wbuffers = None

@@ -15,7 +15,7 @@ class EventEmitter(object):
         if len(self._events[event_name]) == 1 and not self._events_once[event_name]:
             setattr(self, "emit_" + event_name, callback)
         else:
-            setattr(self, "emit_" + event_name, self.emit)
+            setattr(self, "emit_" + event_name, self.emit(event_name))
 
     def once(self, event_name, callback):
         self._events_once[event_name].add(callback)
@@ -29,7 +29,7 @@ class EventEmitter(object):
                     setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
             setattr(self, "emit_" + event_name, emit)
         else:
-            setattr(self, "emit_" + event_name, self.emit)
+            setattr(self, "emit_" + event_name, self.emit(event_name))
 
     def remove_listener(self, event_name, callback):
         try:
@@ -54,7 +54,7 @@ class EventEmitter(object):
                     setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
             setattr(self, "emit_" + event_name, emit)
         elif self._events[event_name] and self._events_once[event_name]:
-            setattr(self, "emit_" + event_name, self.emit)
+            setattr(self, "emit_" + event_name, self.emit(event_name))
         else:
             setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
 
@@ -69,22 +69,24 @@ class EventEmitter(object):
             self._events_once[event_name] = set()
             setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
 
-    def emit(self, event_name, *args, **kwargs):
-        for cb in self._events[event_name]:
-            try:
-                cb(*args, **kwargs)
-            except Exception as e:
-                logging.exception('error when calling callback:%s',e)
-
-        callbacks = self._events_once[event_name]
-        if callbacks:
-            self._events_once[event_name] = set()
-            while callbacks:
-                cb = callbacks.pop()
+    def emit(self, event_name):
+        def _(*args, **kwargs):
+            for cb in self._events[event_name]:
                 try:
                     cb(*args, **kwargs)
                 except Exception as e:
                     logging.exception('error when calling callback:%s',e)
+
+            callbacks = self._events_once[event_name]
+            if callbacks:
+                self._events_once[event_name] = set()
+                while callbacks:
+                    cb = callbacks.pop()
+                    try:
+                        cb(*args, **kwargs)
+                    except Exception as e:
+                        logging.exception('error when calling callback:%s',e)
+        return _
 
     def __getattr__(self, item):
         if item[:5] == "emit_":
@@ -106,6 +108,11 @@ class EventEmitter(object):
 
                 setattr(self, "emit_" + event_name, emit)
                 return emit
+
+            if self._events[event_name] and self._events_once[event_name]:
+                callback = self.emit(event_name)
+                setattr(self, "emit_" + event_name, callback)
+                return callback
 
             callback = lambda *args, **kwargs: None
             setattr(self, "emit_" + event_name, callback)

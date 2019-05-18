@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import os
 import logging
 import socket
 import errno
@@ -141,11 +140,13 @@ class Socket(event.EventEmitter):
         return self._is_enable_nodelay
 
     def end(self):
-        if self._state not in (STATE_INITIALIZED, STATE_CONNECTING, STATE_STREAMING):return
+        if self._state not in (STATE_INITIALIZED, STATE_CONNECTING, STATE_STREAMING):
+            return
+
         if self._state in (STATE_INITIALIZED, STATE_CONNECTING):
             self.close()
         else:
-            if self._wbuffers:
+            if self._write_handler:
                 self._state = STATE_CLOSING
             else:
                 self.close()
@@ -171,7 +172,10 @@ class Socket(event.EventEmitter):
 
         self._state = STATE_CLOSED
         def on_close():
-            self.emit_close(self)
+            try:
+                self.emit_close(self)
+            except Exception as e:
+                logging.exception("tcp emit close error:%s", e)
             self.remove_all_listeners()
             self._rbuffers = None
             self._wbuffers = None
@@ -340,6 +344,11 @@ class Socket(event.EventEmitter):
                     if self._write():
                         if self._has_drain_event:
                             self._loop.add_async(self.emit_drain, self)
+                    if self._write_handler:
+                        self._loop.remove_fd(self._socket, self._write_cb)
+                        self._write_handler = False
+                    if self._state == STATE_CLOSING:
+                        self.close()
             return
 
         if self._write():
@@ -363,15 +372,11 @@ class Socket(event.EventEmitter):
                 self._connect_timeout_handler = None
             self._connect_timeout_handler = self._loop.add_timeout(self._connect_timeout, on_timeout_cb)
 
-            data = self._wbuffers.read()
             try:
-                r = self._socket.sendto(data, MSG_FASTOPEN, self.address)
-                if r < len(data):
-                    self._wbuffers.write(data[r:])
+                self._wbuffers.read(self._socket.sendto(self._wbuffers.join(), MSG_FASTOPEN, self.address))
                 self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
             except socket.error as e:
                 if e.args[0] == errno.EINPROGRESS:
-                    self._wbuffers.write(data)
                     self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
                     return False
                 elif e.args[0] == errno.ENOTCONN:
@@ -589,7 +594,10 @@ class Server(event.EventEmitter):
                     logging.error("server close socket error: %s", e)
             self._state = STATE_CLOSED
             def on_close():
-                self.emit_close(self)
+                try:
+                    self.emit_close(self)
+                except Exception as e:
+                    logging.exception("tcp server emit close error:%s", e)
                 self.remove_all_listeners()
             self._loop.add_async(on_close)
 

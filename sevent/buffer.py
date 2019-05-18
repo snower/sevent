@@ -4,6 +4,7 @@
 
 import os
 import time
+import logging
 from collections import deque
 from .event import EventEmitter
 from .loop import current
@@ -174,12 +175,18 @@ class Buffer(EventEmitter, BaseBuffer):
     def do_drain(self):
         self._full = True
         self._drain_time = time.time()
-        self.emit_drain(self)
+        try:
+            self.emit_drain(self)
+        except Exception as e:
+            logging.exception("buffer emit drain error:%s", e)
 
     def do_regain(self):
         self._full = False
         self._regain_time = time.time()
-        self.emit_regain(self)
+        try:
+            self.emit_regain(self)
+        except Exception as e:
+            logging.exception("buffer emit regain error:%s", e)
 
     def write(self, data, odata = None):
         if odata is None:
