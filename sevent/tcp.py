@@ -345,6 +345,12 @@ class Socket(event.EventEmitter):
         if self._write():
             if self._has_drain_event:
                 self._loop.add_async(self.emit_drain, self)
+            self._wbuffers._writing = False
+            if self._write_handler:
+                self._loop.remove_fd(self._socket, self._write_cb)
+                self._write_handler = False
+            if self._state == STATE_CLOSING:
+                self.close()
 
     def _connect_and_write(self):
         if self._wbuffers:
@@ -407,13 +413,6 @@ class Socket(event.EventEmitter):
                     if data._full and data._len < data._regain_size:
                         data.do_regain()
                     return False
-
-            self._wbuffers._writing = False
-            if self._write_handler:
-                self._loop.remove_fd(self._socket, self._write_cb)
-                self._write_handler = False
-            if self._state == STATE_CLOSING:
-                self.close()
             return True
     else:
         def _write(self):
@@ -429,13 +428,6 @@ class Socket(event.EventEmitter):
                     self._wbuffers.do_regain()
                 return False
 
-            self._wbuffers._writing = False
-            if self._write_handler:
-                self._loop.remove_fd(self._socket, self._write_cb)
-                self._write_handler = False
-            if self._state == STATE_CLOSING:
-                self.close()
-
             if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
                 self._wbuffers.do_regain()
             return True
@@ -444,14 +436,12 @@ class Socket(event.EventEmitter):
         if self._state != STATE_STREAMING:
             if self._state == STATE_CONNECTING:
                 if data.__class__ == Buffer:
-                    if data._len <= 0 or data._writing:
-                        return False
-
-                    if not self._wbuffers:
-                        self._wbuffers = data
-                    elif self._wbuffers != data:
-                        while data:
-                            self._wbuffers.write(data.next())
+                    if self._wbuffers != data:
+                        if not self._wbuffers:
+                            self._wbuffers = data
+                        else:
+                            while data:
+                                self._wbuffers.write(data.next())
                 else:
                     if self._wbuffers is None:
                         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
@@ -463,25 +453,31 @@ class Socket(event.EventEmitter):
             assert self._state == STATE_STREAMING, "not connected"
 
         if data.__class__ == Buffer:
-            if data._len <= 0 or data._writing:
-                return False
-
-            if not self._wbuffers:
-                self._wbuffers = data
-            elif self._wbuffers != data:
-                while data:
-                    self._wbuffers.write(data.next())
+            if self._wbuffers == data:
+                if self._wbuffers._writing:
+                    return False
+            else:
+                if not self._wbuffers:
+                    self._wbuffers = data
+                else:
+                    while data:
+                        self._wbuffers.write(data.next())
+                    if self._wbuffers._writing:
+                        return False
         else:
             if self._wbuffers is None:
                 self._wbuffers = Buffer(max_buffer_size = self._max_buffer_size)
+            elif self._wbuffers._writing:
+                self._wbuffers.write(data)
+                return False
             self._wbuffers.write(data)
 
         if not self._write_handler:
-            self._wbuffers._writing = True
             if self._write():
                 if self._has_drain_event:
                     self._loop.add_async(self.emit_drain, self)
                 return True
+            self._wbuffers._writing = True
             self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
             if not self._write_handler:
                 self._error(Exception("write data add fd error"))
