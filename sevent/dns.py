@@ -175,7 +175,7 @@ class DNSResolver(EventEmitter):
             for callback in callbacks:
                 self._loop.add_async(callback, hostname, ip)
     
-            self._loop.add_async(self.emit, "resolve", self, hostname, ip)
+            self._loop.add_async(self.emit_resolve, self, hostname, ip)
 
         if hostname in self._hostname_server_index:
             del self._hostname_server_index[hostname]

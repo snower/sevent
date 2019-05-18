@@ -171,14 +171,14 @@ class Socket(event.EventEmitter):
 
         self._state = STATE_CLOSED
         def on_close():
-            self.emit('close', self)
+            self.emit_close(self)
             self.remove_all_listeners()
             self._rbuffers = None
             self._wbuffers = None
         self._loop.add_async(on_close)
 
     def _error(self, error):
-        self._loop.add_async(self.emit, 'error', self, error)
+        self._loop.add_async(self.emit_error, self, error)
         self.close()
         logging.error("socket error:%s",error)
 
@@ -196,7 +196,7 @@ class Socket(event.EventEmitter):
         self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
         self._rbuffers.on("drain", lambda _: self.drain())
         self._rbuffers.on("regain", lambda _: self.regain())
-        self._loop.add_async(self.emit, 'connect', self)
+        self._loop.add_async(self.emit_connect, self)
 
         if self._wbuffers and not self._write_handler:
             self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
@@ -283,21 +283,21 @@ class Socket(event.EventEmitter):
             if self._state == STATE_CONNECTING:
                 if self._read():
                     self._connect_cb()
-                    self._loop.add_async(self.emit, 'data', self, self._rbuffers)
+                    self._loop.add_async(self.emit_data, self, self._rbuffers)
                 else:
                     if self._rbuffers._len:
                         self._connect_cb()
-                        self._loop.add_async(self.emit, 'data', self, self._rbuffers)
-                    self._loop.add_async(self.emit, 'end', self)
+                        self._loop.add_async(self.emit_data, self, self._rbuffers)
+                    self._loop.add_async(self.emit_end, self)
                     self.close()
             return
 
         if self._read():
-            self._loop.add_async(self.emit, 'data', self, self._rbuffers)
+            self._loop.add_async(self.emit_data, self, self._rbuffers)
         else:
             if self._rbuffers._len:
-                self._loop.add_async(self.emit, 'data', self, self._rbuffers)
-            self._loop.add_async(self.emit, 'end', self)
+                self._loop.add_async(self.emit_data, self, self._rbuffers)
+            self._loop.add_async(self.emit_end, self)
             if self._state in (STATE_STREAMING, STATE_CLOSING):
                 self.close()
 
@@ -339,12 +339,12 @@ class Socket(event.EventEmitter):
                 if self._wbuffers:
                     if self._write():
                         if self._has_drain_event:
-                            self._loop.add_async(self.emit, 'drain', self)
+                            self._loop.add_async(self.emit_drain, self)
             return
 
         if self._write():
             if self._has_drain_event:
-                self._loop.add_async(self.emit, 'drain', self)
+                self._loop.add_async(self.emit_drain, self)
 
     def _connect_and_write(self):
         if self._wbuffers:
@@ -480,7 +480,7 @@ class Socket(event.EventEmitter):
             self._wbuffers._writing = True
             if self._write():
                 if self._has_drain_event:
-                    self._loop.add_async(self.emit, 'drain', self)
+                    self._loop.add_async(self.emit_drain, self)
                 return True
             self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
             if not self._write_handler:
@@ -584,10 +584,10 @@ class Server(event.EventEmitter):
         socket = Socket(loop=self._loop, socket=connection, address=address)
         if self._is_enable_nodelay:
             socket.enable_nodelay()
-        self._loop.add_async(self.emit, "connection", self, socket)
+        self._loop.add_async(self.emit_connection, self, socket)
 
     def _error(self, error):
-        self._loop.add_async(self.emit, 'error', self, error)
+        self._loop.add_async(self.emit_error, self, error)
         self.close()
         logging.error("server error: %s", error)
 
@@ -603,7 +603,7 @@ class Server(event.EventEmitter):
                     logging.error("server close socket error: %s", e)
             self._state = STATE_CLOSED
             def on_close():
-                self.emit('close', self)
+                self.emit_close(self)
                 self.remove_all_listeners()
             self._loop.add_async(on_close)
 

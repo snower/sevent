@@ -122,7 +122,7 @@ class Socket(EventEmitter):
         self._socket.close()
         self._state = STATE_CLOSED
         def on_close():
-            self.emit('close', self)
+            self.emit_close(self)
             self.remove_all_listeners()
             self._rbuffers = None
             self._wbuffers = None
@@ -130,7 +130,7 @@ class Socket(EventEmitter):
         self._loop.add_async(on_close)
 
     def _error(self, error):
-        self._loop.add_async(self.emit, 'error', self, error)
+        self._loop.add_async(self.emit_error, self, error)
         logging.error("socket error: %s", error)
         self.close()
 
@@ -162,13 +162,13 @@ class Socket(EventEmitter):
                     return self._error(e)
 
         if last_data_len < self._rbuffers._len:
-            self._loop.add_async(self.emit, 'data', self, self._rbuffers)
+            self._loop.add_async(self.emit_data, self, self._rbuffers)
 
     def _write_cb(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):
             if self._write():
                 if self._has_drain_event:
-                    self._loop.add_async(self.emit, 'drain', self)
+                    self._loop.add_async(self.emit_drain, self)
 
     if cbuffer is None:
         def _write(self):
@@ -259,7 +259,7 @@ class Socket(EventEmitter):
                 self._wbuffers._writing = True
                 if self._write():
                     if self._has_drain_event:
-                        self._loop.add_async(self.emit, 'drain', self)
+                        self._loop.add_async(self.emit_drain, self)
                     return True
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
                 if not self._write_handler:

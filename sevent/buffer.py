@@ -175,12 +175,12 @@ class Buffer(EventEmitter, BaseBuffer):
     def do_drain(self):
         self._full = True
         self._drain_time = time.time()
-        self.emit("drain", self)
+        self.emit_drain(self)
 
     def do_regain(self):
         self._full = False
         self._regain_time = time.time()
-        self.emit("regain", self)
+        self.emit_regain(self)
 
     def write(self, data, odata = None):
         if odata is None:
