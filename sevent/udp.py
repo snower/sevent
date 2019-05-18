@@ -169,7 +169,6 @@ class Socket(EventEmitter):
             if self._write():
                 if self._has_drain_event:
                     self._loop.add_async(self.emit_drain, self)
-                self._wbuffers._writing = False
                 if self._write_handler:
                     self._loop.remove_fd(self._socket, self._write_cb)
                     self._write_handler = False
@@ -251,24 +250,18 @@ class Socket(EventEmitter):
                     if self._has_drain_event:
                         self._loop.add_async(self.emit_drain, self)
                     return True
-                self._wbuffers._writing = True
                 self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
                 if not self._write_handler:
                     self._error(Exception("write data add fd error"))
             return False
 
         if data.__class__ == Buffer:
-            if self._wbuffers == data:
-                if self._wbuffers._writing:
-                    return False
-            else:
+            if self._wbuffers != data:
                 if not self._wbuffers:
                     self._wbuffers = data
                 else:
                     while data:
                         self._wbuffers.write(*data.next())
-                    if self._wbuffers._writing:
-                        return False
             return do_write()
         else:
             if self._wbuffers is None:
@@ -281,16 +274,13 @@ class Socket(EventEmitter):
                     return self._error(Exception('can not resolve hostname %s' % str(address)))
                 self._address_cache[hostname] = ip
                 self._wbuffers.write(data, (ip, address[1]))
-                if not self._wbuffers._writing:
-                    do_write()
+                return do_write()
             self._dns_resolver.resolve(address[0], resolve_callback)
             return False
         else:
             ip = self._address_cache[address[0]]
             self._wbuffers.write(data, (ip, address[1]))
-            if not self._wbuffers._writing:
-                return do_write()
-            return False
+            return do_write()
 
 class Socket6(Socket):
     def _create_socket(self):
