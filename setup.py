@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 
 import os
-from setuptools import setup
+import platform
+from setuptools import setup, Extension
+
+if platform.system() != 'Windows' and platform.python_implementation() == "CPython":
+    ext_modules = [Extension('sevent/cbuffer', sources=['sevent/cbuffer.c'])]
+else:
+    ext_modules = []
 
 if os.path.exists("README.md"):
     with open("README.md") as fp:
@@ -13,6 +19,7 @@ setup(
     name = 'sevent',
     version = '0.0.6',
     packages = ['sevent', 'sevent.impl'],
+    ext_modules = ext_modules,
     package_data = {
         'sevent': ['README.md'],
     },

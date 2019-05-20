@@ -61,7 +61,7 @@ static int socket_recv_size = 8192 - sizeof(PyBytesObject);
 
 typedef struct {
     PyObject_VAR_HEAD
-    int buffer_offset;
+    Py_ssize_t buffer_offset;
     BufferQueue* buffer_head;
     BufferQueue* buffer_tail;
 } BufferObject;
@@ -73,7 +73,7 @@ int join_impl(register BufferObject *objbuf)
     PyBytesObject* buffer;
     PyObject* odata;
     char* ob_sval;
-    int buf_len;
+    Py_ssize_t buf_len;
 
     if(Py_SIZE(objbuf) == 0){
         return 0;
@@ -182,6 +182,10 @@ Buffer_init(register BufferObject* objbuf, PyObject* args, PyObject* kwds) {
 
 static PyObject *
 Buffer_slice(register BufferObject *objbuf, register Py_ssize_t i, register Py_ssize_t j){
+    if (Py_SIZE(objbuf) == 0) {
+        return PyBytes_FromStringAndSize(0, 0);
+    }
+
     if (join_impl(objbuf) != 0) {
         return PyErr_NoMemory();
     }
@@ -211,14 +215,13 @@ Buffer_slice(register BufferObject *objbuf, register Py_ssize_t i, register Py_s
 static PyObject *
 Buffer_item(register BufferObject *objbuf, register Py_ssize_t i)
 {
-    if (join_impl(objbuf) != 0) {
-        return PyErr_NoMemory();
-    }
-    
-    PyObject *v;
     if (i < 0 || i >= Py_SIZE(objbuf)) {
         PyErr_SetString(PyExc_IndexError, "index out of range");
         return NULL;
+    }
+
+    if (join_impl(objbuf) != 0) {
+        return PyErr_NoMemory();
     }
 
     if(objbuf->buffer_head->odata != NULL) {
@@ -234,11 +237,15 @@ Buffer_item(register BufferObject *objbuf, register Py_ssize_t i)
 
 static int
 Buffer_nonzero(register BufferObject *objbuf) {
-    return Py_SIZE(objbuf);
+    return (int)Py_SIZE(objbuf);
 }
 
 static long
 Buffer_hash(register BufferObject *objbuf) {
+    if (Py_SIZE(objbuf) == 0) {
+        return PyObject_Hash(PyBytes_FromStringAndSize(0, 0));
+    }
+
     if (join_impl(objbuf) != 0) {
         return -1;
     }
@@ -248,11 +255,117 @@ Buffer_hash(register BufferObject *objbuf) {
 
 static PyObject *
 Buffer_string(register BufferObject *objbuf) {
+    if (Py_SIZE(objbuf) == 0) {
+        return PyObject_Str(PyBytes_FromStringAndSize(0, 0));
+    }
+
     if (join_impl(objbuf) != 0) {
         return PyErr_NoMemory();
     }
 
     return PyObject_Str((PyObject*)objbuf->buffer_head->buffer);
+}
+
+static PyObject *
+Buffer_repr(register BufferObject *objbuf) {
+    if (Py_SIZE(objbuf) == 0) {
+        return PyObject_Repr(PyBytes_FromStringAndSize(0, 0));
+    }
+
+    if (join_impl(objbuf) != 0) {
+        return PyErr_NoMemory();
+    }
+
+    return PyObject_Repr((PyObject*)objbuf->buffer_head->buffer);
+}
+
+#if PY_MAJOR_VERSION < 3
+static Py_ssize_t
+Buffer_getreadbuf(BufferObject *objbuf, Py_ssize_t index, const void **ptr)
+{
+    if ( index != 0 ) {
+        PyErr_SetString(PyExc_SystemError, "accessing non-existent string segment");
+        return -1;
+    }
+
+    if (Py_SIZE(objbuf) == 0) {
+        PyErr_SetString(PyExc_IndexError, "buffer empty");
+        return -1;
+    }
+
+    if (join_impl(objbuf) != 0) {
+        PyErr_SetString(PyExc_MemoryError, "out of memory");
+        return -1;
+    }
+
+    *ptr = objbuf->buffer_head->buffer->ob_sval;
+    return Py_SIZE(objbuf);
+}
+
+static Py_ssize_t
+Buffer_getwritebuf(BufferObject *objbuf, Py_ssize_t index, const void **ptr)
+{
+    PyErr_SetString(PyExc_TypeError,
+                    "Cannot use string as modifiable buffer");
+    return -1;
+}
+
+static Py_ssize_t
+Buffer_getsegcount(BufferObject *objbuf, Py_ssize_t *lenp)
+{
+    if (Py_SIZE(objbuf) == 0) {
+        PyErr_SetString(PyExc_IndexError, "buffer empty");
+        return -1;
+    }
+
+    if (join_impl(objbuf) != 0) {
+        PyErr_SetString(PyExc_MemoryError, "out of memory");
+        return -1;
+    }
+
+    if ( lenp )
+        *lenp = Py_SIZE(objbuf);
+    return 1;
+}
+
+static Py_ssize_t
+Buffer_getcharbuf(BufferObject *objbuf, Py_ssize_t index, const char **ptr)
+{
+    if ( index != 0 ) {
+        PyErr_SetString(PyExc_SystemError, "accessing non-existent string segment");
+        return -1;
+    }
+
+    if (Py_SIZE(objbuf) == 0) {
+        PyErr_SetString(PyExc_IndexError, "buffer empty");
+        return -1;
+    }
+
+    if (join_impl(objbuf) != 0) {
+        PyErr_SetString(PyExc_MemoryError, "out of memory");
+        return -1;
+    }
+    *ptr = objbuf->buffer_head->buffer->ob_sval;
+    return Py_SIZE(objbuf);
+}
+#endif
+
+static int
+Buffer_getbuffer(BufferObject *objbuf, Py_buffer *view, int flags)
+{
+
+    if (Py_SIZE(objbuf) == 0) {
+        PyErr_SetString(PyExc_IndexError, "buffer empty");
+        return -1;
+    }
+
+    if (join_impl(objbuf) != 0) {
+        PyErr_SetString(PyExc_MemoryError, "out of memory");
+        return -1;
+    }
+
+    return PyBuffer_FillInfo(view, (PyObject*)objbuf->buffer_head->buffer,
+            objbuf->buffer_head->buffer->ob_sval, Py_SIZE(objbuf->buffer_head->buffer), 1, flags);
 }
 
 static PyObject *
@@ -345,7 +458,7 @@ Buffer_read(register BufferObject *objbuf, PyObject *args)
 
     BufferQueue* last_queue;
     int buffer_size = 0;
-    int buf_len;
+    Py_ssize_t buf_len;
 
     if(objbuf->buffer_offset == 0) {
         if(read_size == Py_SIZE(objbuf->buffer_head->buffer)) {
@@ -441,7 +554,7 @@ Buffer_next(register BufferObject *objbuf, PyObject *args) {
     BufferQueue* last_queue;
     PyBytesObject* buffer;
     if(objbuf->buffer_offset > 0) {
-        int buf_size = Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset;
+        Py_ssize_t buf_size = Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset;
         buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
         if (buffer == NULL)
             return PyErr_NoMemory();
@@ -517,8 +630,8 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
     }
 
     PyBytesObject* buf;
-    int result = 0;
-    int recv_len = 0;
+    Py_ssize_t result = 0;
+    Py_ssize_t recv_len = 0;
 
     while (1) {
         if(bytes_fast_buffer_index > 0) {
@@ -593,8 +706,8 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
         return NULL;
     }
 
-    int result = 0;
-    int send_len = 0;
+    Py_ssize_t result = 0;
+    Py_ssize_t send_len = 0;
     BufferQueue* last_queue;
 
     while (objbuf->buffer_head != NULL) {
@@ -724,6 +837,19 @@ static PyNumberMethods Buffer_as_number = {
         (inquiry)Buffer_nonzero, //nb_nonzero;
 };
 
+
+
+static PyBufferProcs Buffer_as_buffer = {
+#if PY_MAJOR_VERSION < 3
+        (readbufferproc)Buffer_getreadbuf,      /*bf_getreadbuffer*/
+        (writebufferproc)Buffer_getwritebuf,    /*bf_getwritebuffer*/
+        (segcountproc)Buffer_getsegcount,       /*bf_getsegcount*/
+        (charbufferproc)Buffer_getcharbuf,      /*bf_getcharbuffer*/
+#endif
+        (getbufferproc)Buffer_getbuffer,        /*bf_getbuffer*/
+        0,                                      /*bf_releasebuffer*/
+};
+
 static PyTypeObject BufferType = {
         PyVarObject_HEAD_INIT(&PyType_Type, 0)    /*ob_size*/
         "cbuffer.Buffer",                         /*tp_name*/
@@ -734,7 +860,7 @@ static PyTypeObject BufferType = {
         0,                                        /*tp_getattr*/
         0,                                        /*tp_setattr*/
         0,                                        /*tp_compare*/
-        0,                                        /*tp_repr*/
+        (reprfunc)Buffer_repr,                    /*tp_repr*/
         &Buffer_as_number,                        /*tp_as_number*/
         &Buffer_as_sequence,                      /*tp_as_sequence*/
         0,                                        /*tp_as_mapping*/
@@ -743,7 +869,7 @@ static PyTypeObject BufferType = {
         (reprfunc)Buffer_string,                  /*tp_str*/
         0,                                        /*tp_getattro*/
         0,                                        /*tp_setattro*/
-        0,                                        /*tp_as_buffer*/
+        &Buffer_as_buffer,                        /*tp_as_buffer*/
         Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /*tp_flags*/
         "Buffer objects",                         /* tp_doc */
         0,                                        /* tp_traverse */
@@ -783,7 +909,7 @@ cbuffer_socket_recv(PyObject *self, PyObject *args) {
         }
     }
 
-    int result = recv(sock_fd, buf->ob_sval, socket_recv_size, 0);
+    Py_ssize_t result = recv(sock_fd, buf->ob_sval, socket_recv_size, 0);
     if(result < 0) {
         if(bytes_fast_buffer_index < BYTES_FAST_BUFFER_COUNT) {
             bytes_fast_buffer[bytes_fast_buffer_index++]=buf;
@@ -811,7 +937,7 @@ cbuffer_socket_send(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    int result = send(sock_fd, ((PyBytesObject*)data)->ob_sval, Py_SIZE(data), 0);
+    Py_ssize_t result = send(sock_fd, ((PyBytesObject*)data)->ob_sval, Py_SIZE(data), 0);
     if(result < 0) {
         return PyErr_SetFromErrno(PyExc_OSError);;
     }
