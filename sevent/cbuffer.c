@@ -266,19 +266,6 @@ Buffer_string(register BufferObject *objbuf) {
     return PyObject_Str((PyObject*)objbuf->buffer_head->buffer);
 }
 
-static PyObject *
-Buffer_repr(register BufferObject *objbuf) {
-    if (Py_SIZE(objbuf) == 0) {
-        return PyObject_Repr(PyBytes_FromStringAndSize(0, 0));
-    }
-
-    if (join_impl(objbuf) != 0) {
-        return PyErr_NoMemory();
-    }
-
-    return PyObject_Repr((PyObject*)objbuf->buffer_head->buffer);
-}
-
 #if PY_MAJOR_VERSION < 3
 static Py_ssize_t
 Buffer_getreadbuf(BufferObject *objbuf, Py_ssize_t index, const void **ptr)
@@ -860,7 +847,7 @@ static PyTypeObject BufferType = {
         0,                                        /*tp_getattr*/
         0,                                        /*tp_setattr*/
         0,                                        /*tp_compare*/
-        (reprfunc)Buffer_repr,                    /*tp_repr*/
+        0,                                        /*tp_repr*/
         &Buffer_as_number,                        /*tp_as_number*/
         &Buffer_as_sequence,                      /*tp_as_sequence*/
         0,                                        /*tp_as_mapping*/
