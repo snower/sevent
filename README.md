@@ -18,7 +18,7 @@ def on_connect(s):
 
 def on_data(s, data):
     print 'on_data'
-    print data
+    print str(data)
 
 def on_end(s):
     print 'on_end'

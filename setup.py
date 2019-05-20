@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os
+import sys
 import platform
 from setuptools import setup, Extension
 
@@ -10,8 +11,12 @@ else:
     ext_modules = []
 
 if os.path.exists("README.md"):
-    with open("README.md") as fp:
-        long_description = fp.read()
+    if sys.version_info[0] >= 3:
+        with open("README.md", encoding="utf-8") as fp:
+            long_description = fp.read()
+    else:
+        with open("README.md") as fp:
+            long_description = fp.read()
 else:
     long_description = ''
 
@@ -21,7 +26,7 @@ setup(
     packages = ['sevent', 'sevent.impl'],
     ext_modules = ext_modules,
     package_data = {
-        'sevent': ['README.md'],
+        '': ['README.md'],
     },
     install_requires = [],
     author = 'snower',
@@ -29,5 +34,6 @@ setup(
     url = 'https://github.com/snower/sevent',
     license = 'MIT',
     description = 'lightweight event loop',
-    long_description = long_description
+    long_description = long_description,
+    long_description_content_type="text/markdown",
 )
