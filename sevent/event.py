@@ -15,21 +15,21 @@ class EventEmitter(object):
         if len(self._events[event_name]) == 1 and not self._events_once[event_name]:
             setattr(self, "emit_" + event_name, callback)
         else:
-            setattr(self, "emit_" + event_name, self.emit(event_name))
+            setattr(self, "emit_" + event_name, self.emit_callback(event_name))
 
     def once(self, event_name, callback):
         self._events_once[event_name].add(callback)
 
         if not self._events[event_name] and len(self._events_once[event_name]) == 1:
-            def emit(*args, **kwargs):
+            def emit_callback(*args, **kwargs):
                 try:
                     return callback(*args, **kwargs)
                 finally:
                     self._events_once[event_name] = set()
                     setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
-            setattr(self, "emit_" + event_name, emit)
+            setattr(self, "emit_" + event_name, emit_callback)
         else:
-            setattr(self, "emit_" + event_name, self.emit(event_name))
+            setattr(self, "emit_" + event_name, self.emit_callback(event_name))
 
     def remove_listener(self, event_name, callback):
         try:
@@ -46,15 +46,15 @@ class EventEmitter(object):
             setattr(self, "emit_" + event_name, list(self._events[event_name])[0])
         elif not self._events[event_name] and len(self._events_once[event_name]) == 1:
             callback = list(self._events_once[event_name])[0]
-            def emit(*args, **kwargs):
+            def emit_callback(*args, **kwargs):
                 try:
                     return callback(*args, **kwargs)
                 finally:
                     self._events_once[event_name] = set()
                     setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
-            setattr(self, "emit_" + event_name, emit)
+            setattr(self, "emit_" + event_name, emit_callback)
         elif self._events[event_name] and self._events_once[event_name]:
-            setattr(self, "emit_" + event_name, self.emit(event_name))
+            setattr(self, "emit_" + event_name, self.emit_callback(event_name))
         else:
             setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
 
@@ -69,7 +69,7 @@ class EventEmitter(object):
             self._events_once[event_name] = set()
             setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
 
-    def emit(self, event_name):
+    def emit_callback(self, event_name):
         def _(*args, **kwargs):
             for cb in self._events[event_name]:
                 try:
@@ -88,6 +88,23 @@ class EventEmitter(object):
                         logging.exception('error when calling callback:%s',e)
         return _
 
+    def emit(self, event_name, *args, **kwargs):
+        for cb in self._events[event_name]:
+            try:
+                cb(*args, **kwargs)
+            except Exception as e:
+                logging.exception('error when calling callback:%s', e)
+
+        callbacks = self._events_once[event_name]
+        if callbacks:
+            self._events_once[event_name] = set()
+            while callbacks:
+                cb = callbacks.pop()
+                try:
+                    cb(*args, **kwargs)
+                except Exception as e:
+                    logging.exception('error when calling callback:%s', e)
+
     def __getattr__(self, item):
         if item[:5] == "emit_":
             event_name = item[5:]
@@ -99,22 +116,25 @@ class EventEmitter(object):
             if not self._events[event_name] and len(self._events_once[event_name]) == 1:
                 callback = list(self._events_once[event_name])[0]
 
-                def emit(*args, **kwargs):
+                def emit_callback(*args, **kwargs):
                     try:
                         return callback(*args, **kwargs)
                     finally:
                         self._events_once[event_name] = set()
                         setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
 
-                setattr(self, "emit_" + event_name, emit)
-                return emit
+                setattr(self, "emit_" + event_name, emit_callback)
+                return emit_callback
 
             if self._events[event_name] and self._events_once[event_name]:
-                callback = self.emit(event_name)
+                callback = self.emit_callback(event_name)
                 setattr(self, "emit_" + event_name, callback)
                 return callback
 
             callback = lambda *args, **kwargs: None
             setattr(self, "emit_" + event_name, callback)
             return callback
+
+        elif item[:3] == "on_":
+            return lambda *args, **kwargs: self.on(item[3:], *args, **kwargs)
         return super(EventEmitter, self).__getattr__(self, item)
