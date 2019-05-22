@@ -9,6 +9,8 @@ class EpollLoop(IOLoop):
         super(EpollLoop, self).__init__()
         self._epoll = select.epoll()
 
+        self._poll = self._epoll.poll
+
     def _poll(self, timeout):
         return self._epoll.poll(timeout)
 
