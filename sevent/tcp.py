@@ -283,17 +283,16 @@ class Socket(event.EventEmitter):
                 self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
 
     def _read_cb(self):
-        if self._state not in (STATE_STREAMING, STATE_CLOSING):
-            if self._state == STATE_CONNECTING:
-                if self._read():
+        if self._state == STATE_CONNECTING:
+            if self._read():
+                self._connect_cb()
+                self._loop.add_async(self.emit_data, self, self._rbuffers)
+            else:
+                if self._rbuffers._len:
                     self._connect_cb()
                     self._loop.add_async(self.emit_data, self, self._rbuffers)
-                else:
-                    if self._rbuffers._len:
-                        self._connect_cb()
-                        self._loop.add_async(self.emit_data, self, self._rbuffers)
-                    self._loop.add_async(self.emit_end, self)
-                    self.close()
+                self._loop.add_async(self.emit_end, self)
+                self.close()
             return
 
         if self._read():

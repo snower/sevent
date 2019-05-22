@@ -148,7 +148,7 @@ class Socket(EventEmitter):
                 self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
 
     def _read_cb(self):
-        if self._state in (STATE_STREAMING, STATE_BINDING):
+        if self._state != STATE_CLOSED:
             self._read()
 
     def _read(self):
@@ -167,7 +167,7 @@ class Socket(EventEmitter):
             self._loop.add_async(self.emit_data, self, self._rbuffers)
 
     def _write_cb(self):
-        if self._state in (STATE_STREAMING, STATE_CLOSING, STATE_BINDING):
+        if self._state != STATE_CLOSED:
             if self._write():
                 if self._has_drain_event:
                     self._loop.add_async(self.emit_drain, self)
