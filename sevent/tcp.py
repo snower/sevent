@@ -336,18 +336,17 @@ class Socket(event.EventEmitter):
             return r
 
     def _write_cb(self):
-        if self._state not in (STATE_STREAMING, STATE_CLOSING):
-            if self._state == STATE_CONNECTING:
-                self._connect_cb()
-                if self._wbuffers:
-                    if self._write():
-                        if self._has_drain_event:
-                            self._loop.add_async(self.emit_drain, self)
-                    if self._write_handler:
-                        self._loop.remove_fd(self._socket, self._write_cb)
-                        self._write_handler = False
-                    if self._state == STATE_CLOSING:
-                        self.close()
+        if self._state == STATE_CONNECTING:
+            self._connect_cb()
+            if self._wbuffers:
+                if self._write():
+                    if self._has_drain_event:
+                        self._loop.add_async(self.emit_drain, self)
+                if self._write_handler:
+                    self._loop.remove_fd(self._socket, self._write_cb)
+                    self._write_handler = False
+                if self._state == STATE_CLOSING:
+                    self.close()
             return
 
         if self._write():

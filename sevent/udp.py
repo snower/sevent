@@ -148,7 +148,7 @@ class Socket(EventEmitter):
                 self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
 
     def _read_cb(self):
-        if self._state != STATE_CLOSED:
+        if self._state in (STATE_STREAMING, STATE_BINDING):
             self._read()
 
     def _read(self):
