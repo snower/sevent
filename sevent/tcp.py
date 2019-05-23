@@ -327,11 +327,11 @@ class Socket(event.EventEmitter):
                 r = self._rbuffers.socket_recv(self._fileno)
             except Exception as e:
                 self._error(e)
-                if not self._rbuffers._full and self._rbuffers._len > self._rbuffers._drain_size:
+                if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                     self._rbuffers.do_drain()
                 return False
 
-            if not self._rbuffers._full and self._rbuffers._len > self._rbuffers._drain_size:
+            if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                 self._rbuffers.do_drain()
             return r
 

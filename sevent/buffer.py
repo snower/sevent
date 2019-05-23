@@ -194,7 +194,7 @@ class Buffer(EventEmitter, BaseBuffer):
         else:
             BaseBuffer.write(self, data, odata)
 
-        if not self._full and self._len > self._drain_size:
+        if self._len > self._drain_size and not self._full:
             self.do_drain()
         return self
 
