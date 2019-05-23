@@ -31,6 +31,7 @@ try:
     else:
         cbuffer = None
 except ImportError:
+    logging.warning("cbuffer is not supported")
     cbuffer = None
 
 RECV_BUFFER_SIZE = RECV_BUFFER_SIZE or 8 * 1024 - 64
