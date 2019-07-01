@@ -3,6 +3,8 @@
 import logging
 from collections import defaultdict
 
+def null_emit_callback(*args, **kwargs):
+    return None
 
 class EventEmitter(object):
     def __init__(self):
@@ -25,8 +27,8 @@ class EventEmitter(object):
                 try:
                     return callback(*args, **kwargs)
                 finally:
+                    setattr(self, "emit_" + event_name, null_emit_callback)
                     self._events_once[event_name] = set()
-                    setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
             setattr(self, "emit_" + event_name, emit_callback)
         else:
             setattr(self, "emit_" + event_name, self.emit_callback(event_name))
@@ -50,24 +52,24 @@ class EventEmitter(object):
                 try:
                     return callback(*args, **kwargs)
                 finally:
+                    setattr(self, "emit_" + event_name, null_emit_callback)
                     self._events_once[event_name] = set()
-                    setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
             setattr(self, "emit_" + event_name, emit_callback)
         elif self._events[event_name] and self._events_once[event_name]:
             setattr(self, "emit_" + event_name, self.emit_callback(event_name))
         else:
-            setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
+            setattr(self, "emit_" + event_name, null_emit_callback)
 
     def remove_all_listeners(self, event_name=None):
         if event_name is None:
+            for event_name in set(self._events.keys() + self._events_once.keys()):
+                setattr(self, "emit_" + event_name, null_emit_callback)
             self._events = defaultdict(set)
             self._events_once = defaultdict(set)
-            for event_name in set(self._events.keys() + self._events_once.keys()):
-                setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
         else:
+            setattr(self, "emit_" + event_name, null_emit_callback)
             self._events[event_name] = set()
             self._events_once[event_name] = set()
-            setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
 
     def emit_callback(self, event_name):
         def _(*args, **kwargs):
@@ -120,8 +122,8 @@ class EventEmitter(object):
                     try:
                         return callback(*args, **kwargs)
                     finally:
+                        setattr(self, "emit_" + event_name, null_emit_callback)
                         self._events_once[event_name] = set()
-                        setattr(self, "emit_" + event_name, lambda *args, **kwargs: None)
 
                 setattr(self, "emit_" + event_name, emit_callback)
                 return emit_callback
