@@ -4,16 +4,12 @@
 
 import os
 import time
-import re
-import struct
 import socket
-import logging
+import dnslib
 from collections import defaultdict
 from .loop import instance
 from .event import EventEmitter
 from .utils import ensure_types, is_py3
-
-VALID_HOSTNAME = re.compile(br"(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
 
 QTYPE_ANY = 255
 QTYPE_A = 1
@@ -22,42 +18,83 @@ QTYPE_CNAME = 5
 QTYPE_NS = 2
 QCLASS_IN = 1
 
-STATUS_IPV4 = 0
-STATUS_IPV6 = 1
-
 STATUS_OPENED = 0
 STATUS_CLOSED = 1
 
 class DNSCache(object):
-    def __init__(self, default_ttl = 60):
+    def __init__(self, loop, default_ttl = 60):
+        self._loop = loop or instance()
         self.default_ttl = default_ttl
-        self._cache = {}
+        self._cache = defaultdict(list)
+        self._last_resolve_time = time.time()
 
-    def set(self, hostname, answers, type, ttl = None):
-        self._cache[hostname] = {
-            "answers": answers,
-            'type': type,
-            "cache_time": time.time(),
-            "ttl": ttl or self.default_ttl,
-        }
+    def append(self, hostname, rrs):
+        rrcs = []
+        now = time.time()
+        for rrc in self._cache[hostname]:
+            if rrc.ttl_expried_time <= now:
+                continue
+            rrcs.append(rrc)
+        self._cache[hostname] = rrcs
+
+        for rr in rrs:
+            has_cache = False
+            for rrc in self._cache[hostname]:
+                if rr == rrc:
+                    has_cache = True
+                    break
+            if has_cache:
+                continue
+            setattr(rr, "ttl_expried_time", time.time() + (rr.ttl or self.default_ttl))
+            self._cache[hostname].append(rr)
+
+        if self._last_resolve_time - now >= 120:
+            self._loop.add_async(self.resolve)
+            self._last_resolve_time = now
 
     def get(self, hostname):
-        answers =  self._cache.get(hostname)
-        if answers:
-            if answers["cache_time"] + answers["ttl"] >= time.time():
-                return answers["answers"][0][0], answers["type"]
-            del self._cache[hostname]
-        return None, None
+        if not self._cache[hostname]:
+            return None, hostname
+
+        now = time.time()
+        if self._last_resolve_time - now >= 120:
+            self._loop.add_async(self.resolve)
+            self._last_resolve_time = now
+
+        for rrc in self._cache[hostname]:
+            if rrc.ttl_expried_time <= now:
+                continue
+            return str(rrc.rdata), hostname
+        return None, hostname
 
     def remove(self, hostname):
         if hostname in self._cache:
             self._cache.pop(hostname)
 
-    def clear(self):
-        self._cache = {}
+        now = time.time()
+        if self._last_resolve_time - now >= 120:
+            self._loop.add_async(self.resolve)
+            self._last_resolve_time = now
 
-    def __setitem__(self, hostname, ip):
-        return self.set(hostname, [[ip, QTYPE_A, self.default_ttl]], QTYPE_A)
+    def resolve(self):
+        now = time.time()
+        epried_hostnames = []
+        for hostname, rrs in self._cache.items():
+            rrcs = []
+            for rr in rrs:
+                if rr.ttl_expried_time <= now:
+                    continue
+                rrcs.append(rr)
+            if rrcs:
+                self._cache[hostname] = rrcs
+            else:
+                epried_hostnames.append(hostname)
+
+        for hostname in epried_hostnames:
+            self.remove(hostname)
+
+    def clear(self):
+        self._cache = defaultdict(list)
 
     def __getitem__(self, hostname):
         return self.get(hostname)[0]
@@ -67,15 +104,6 @@ class DNSCache(object):
 
     def __contains__(self, hostname):
         return bool(self.get(hostname)[0])
-
-class DNSResponse(object):
-    def __init__(self):
-        self.hostname = None
-        self.questions = []  # each: (addr, type, class)
-        self.answers = []  # each: (addr, type, class)
-
-    def __str__(self):
-        return '%s: %s' % (self.hostname, str(self.answers))
 
 class DNSResolver(EventEmitter):
     _instance = None
@@ -90,23 +118,30 @@ class DNSResolver(EventEmitter):
         super(DNSResolver, self).__init__()
 
         self._loop = loop or instance()
-        self._servers = servers or []
+        self._servers = []
+        self._server6s = []
         self._hosts = hosts or {}
 
-        self._cache = DNSCache()
+        self._cache = DNSCache(self._loop)
         self._queue = defaultdict(list)
-        self._hostname_status = {}
-        self._hostname_server_index = {}
+        self._loading = defaultdict(int)
         self._socket = None
         self._socket6 = None
         self._status = STATUS_OPENED
 
         if not servers:
-            self.parse_resolv()
+            servers = self.parse_resolv()
+        for server in servers:
+            inet_type = self.is_ip(server)
+            if inet_type == socket.AF_INET:
+                self._servers.append(server)
+            elif inet_type == socket.AF_INET6:
+                self._server6s.append(server)
+
         if not hosts:
             self.parse_hosts()
 
-        self._resolve_timeout = resolve_timeout if resolve_timeout else (len(self._servers) * resend_timeout + 4)
+        self._resolve_timeout = resolve_timeout if resolve_timeout else ((len(self._servers) + len(self._server6s)) * resend_timeout + 4)
         self._resend_timeout = resend_timeout
 
     def on_resolve(self, callback):
@@ -128,7 +163,7 @@ class DNSResolver(EventEmitter):
         self._socket6.on("close", self.on_close)
 
     def parse_resolv(self):
-        self._servers = []
+        servers = []
         try:
             with open('/etc/resolv.conf', 'rb') as f:
                 content = f.readlines()
@@ -142,11 +177,15 @@ class DNSResolver(EventEmitter):
                                 if self.is_ip(server):
                                     if type(server) != str:
                                         server = server.decode('utf8')
-                                    self._servers.append(server)
+                                    servers.append(server)
         except IOError:
             pass
-        if not self._servers:
-            self._servers = ['8.8.4.4', '8.8.8.8']
+        if not servers:
+            try:
+                servers = str(os.environ.get("SEVENT_NAMESERVER", '')).split(",")
+            except:
+                servers = ['8.8.4.4', '8.8.8.8']
+        return servers
 
     def parse_hosts(self):
         etc_path = '/etc/hosts'
@@ -168,79 +207,67 @@ class DNSResolver(EventEmitter):
             self._hosts['localhost'] = '127.0.0.1'
 
     def call_callback(self, hostname, ip):
-        callbacks = self._queue[hostname]
-        if callbacks:
-            del self._queue[hostname]
-    
-            for callback in callbacks:
-                self._loop.add_async(callback, hostname, ip)
-    
-            self._loop.add_async(self.emit_resolve, self, hostname, ip)
+        if not self._queue[hostname]:
+            return
+        callbacks = self._queue.pop(hostname)
+        for callback in callbacks:
+            self._loop.add_async(callback, hostname, ip)
 
-        if hostname in self._hostname_server_index:
-            del self._hostname_server_index[hostname]
-            
-        if hostname in self._hostname_status:
-            del self._hostname_status[hostname]
+        self._loop.add_async(self.emit_resolve, self, hostname, ip)
 
     def on_data(self, socket, buffer):
         while buffer:
             data, address = buffer.next()
-            if address[0] not in self._servers:
+            try:
+                answer = dnslib.DNSRecord.parse(data)
+                hostname = ".".join(answer.q.qname.label)
+                rrs = [rr for rr in answer.rr if rr.rtype == answer.q.qtype]
+                self._loading[hostname] -= 1
+
+                if rrs:
+                    self._cache.append(hostname, rrs)
+                    self.call_callback(hostname, str(rrs[0].rdata))
+                elif self._loading[hostname] <= 0:
+                    self.call_callback(hostname, None)
+
+                if self._loading[hostname] <= 0:
+                    self._loading.pop(hostname)
+            except Exception as e:
+                continue
+
+    def send_req(self, hostname, server_index = 0):
+        if not self._servers:
+            return
+
+        question = dnslib.DNSRecord.question(hostname, 'A')
+        if self._socket is None:
+            self.create_socket()
+        self._socket.write((bytes(question.pack()), (self._servers[server_index], 53)))
+        self._loading[hostname] += 1
+
+        def on_timeout():
+            if server_index + 1 >= len(self._servers):
                 return
+            if hostname not in self._cache:
+                self.send_req(hostname, server_index + 1)
+        self._loop.add_timeout(self._resend_timeout, on_timeout)
 
-            response = self.parse_response(data)
-            if response and response.hostname:
-                hostname = response.hostname
+    def send_req6(self, hostname, server_index = 0):
+        if not self._server6s:
+            return
 
-                answers = []
-                for answer in response.answers:
-                    if answer[2] in (QTYPE_A, QTYPE_AAAA) and answer[3] == QCLASS_IN:
-                        answers.append((answer[1], answer[2], answer[4]))
+        question = dnslib.DNSRecord.question(hostname, 'AAAA')
+        if self._socket6 is None:
+            self.create_socket6()
+        self._socket6.write((bytes(question.pack()), (self._server6s[server_index], 53)))
+        self._loading[hostname] += 1
 
-                hostname_status = self._hostname_status.get(hostname, 0)
-                if not answers:
-                    if hostname_status == 1:
-                        self.send_req(hostname)
-                    elif hostname_status == 2:
-                        self.call_callback(hostname, self._cache[hostname])
-                    else:
-                        self._hostname_status[hostname] = 1
-                else:
-                    ip, type, ttl = answers[0]
-                    self._hostname_status[hostname] = 2
-                    cip, ctype = self._cache.get(hostname)
-                    if not cip or ctype == QTYPE_AAAA:
-                        self._cache.set(hostname, answers, type, ttl)
-                    if type == QTYPE_A or (hostname_status == 1 and type == QTYPE_AAAA):
-                        self.call_callback(hostname, ip)
-
-    def send_req(self, hostname, qtype=None):
-        server_index = self._hostname_server_index.get(hostname, -1)
-        if server_index + 1 < len(self._servers):
-            server = self._servers[server_index + 1]
-            server_family = self.is_ip(server)
-            if qtype is None:
-                qtype = [QTYPE_A, QTYPE_AAAA] if server_family == socket.AF_INET6 else [QTYPE_A]
-            for qt in qtype:
-                req = self.build_request(hostname, qt)
-                if server_family == socket.AF_INET6:
-                    if self._socket6 is None:
-                        self.create_socket6()
-                    self._socket6.write((req, (server, 53)))
-                else:
-                    if self._socket is None:
-                        self.create_socket()
-                    self._socket.write((req, (server, 53)))
-            self._hostname_server_index[hostname] = server_index + 1
-            self._hostname_status[hostname] = 0
-
-            def on_timeout():
-                if server_index + 1 >= len(self._servers):
-                    return
-                if hostname not in self._cache:
-                    self.send_req(hostname)
-            self._loop.add_timeout(self._resend_timeout, on_timeout)
+        def on_timeout():
+            if server_index + 1 >= len(self._server6s):
+                return
+            if hostname not in self._cache:
+                self.send_req6(hostname, server_index + 1)
+        self._loop.add_timeout(self._resend_timeout, on_timeout)
 
     def resolve(self, hostname, callback, timeout = None):
         if self._status == STATUS_CLOSED:
@@ -257,19 +284,20 @@ class DNSResolver(EventEmitter):
         elif hostname in self._cache:
             callback(hostname, self._cache[hostname])
         else:
-            if not self.is_valid_hostname(hostname):
-                callback(hostname, None)
-            else:
-                callbacks = self._queue[hostname]
-                if not callbacks:
+            try:
+                if not self._queue[hostname]:
+                    self._queue[hostname].append(callback)
                     self.send_req(hostname)
+                    self.send_req6(hostname)
+
                     def on_timeout():
                         if hostname not in self._cache:
                             self.call_callback(hostname, None)
-                        elif self._hostname_status.get(hostname, 0) == 2:
-                            self.call_callback(hostname, self._cache[hostname])
                     self._loop.add_timeout(timeout or self._resolve_timeout, on_timeout)
-                callbacks.append(callback)
+                else:
+                    self._queue[hostname].append(callback)
+            except Exception as e:
+                self.call_callback(hostname, None)
 
     def flush(self):
         self._cache.clear()
@@ -288,148 +316,14 @@ class DNSResolver(EventEmitter):
             return
 
         self._status = STATUS_CLOSED
-        self._socket.close()
-        self._socket = None
+        if self._socket:
+            self._socket.close()
+        if self._socket6:
+            self._socket6.close()
 
         for hostname, callbacks in self._queue:
             for callback in callbacks:
                 callback(hostname, None)
-
-    def build_address(self, address):
-        address = address.strip(b'.')
-        labels = address.split(b'.')
-        results = []
-        for label in labels:
-            l = len(label)
-            if l > 63:
-                return None
-            results.append(ensure_types(chr(l)))
-            results.append(label)
-        results.append(b'\0')
-        return b''.join(results)
-
-
-    def build_request(self, address, qtype):
-        request_id = os.urandom(2)
-        header = struct.pack('!BBHHHH', 1, 0, 1, 0, 0, 0)
-        addr = self.build_address(address)
-        qtype_qclass = struct.pack('!HH', qtype, QCLASS_IN)
-        return request_id + header + addr + qtype_qclass
-
-
-    def parse_ip(self, addrtype, data, length, offset):
-        if addrtype == QTYPE_A:
-            return socket.inet_ntoa(data[offset:offset + length])
-        elif addrtype == QTYPE_AAAA:
-            if hasattr(socket, "inet_ntop"):
-                return socket.inet_ntop(socket.AF_INET6, data[offset:offset + length])
-            else:
-                return ""
-        elif addrtype in [QTYPE_CNAME, QTYPE_NS]:
-            return self.parse_name(data, offset)[1]
-        else:
-            return data[offset:offset + length]
-
-
-    def parse_name(self, data, offset):
-        p = offset
-        labels = []
-        l = data[p] if is_py3 else ord(data[p])
-        while l > 0:
-            if (l & (128 + 64)) == (128 + 64):
-                # pointer
-                pointer = struct.unpack('!H', data[p:p + 2])[0]
-                pointer &= 0x3FFF
-                r = self.parse_name(data, pointer)
-                labels.append(r[1])
-                p += 2
-                # pointer is the end
-                return p - offset, b'.'.join(labels)
-            else:
-                labels.append(data[p + 1:p + 1 + l])
-                p += 1 + l
-            l = data[p] if is_py3 else ord(data[p])
-        return p - offset + 1, b'.'.join(labels)
-
-    def parse_record(self, data, offset, question=False):
-        nlen, name = self.parse_name(data, offset)
-        if not question:
-            record_type, record_class, record_ttl, record_rdlength = struct.unpack(
-                '!HHIH', data[offset + nlen:offset + nlen + 10]
-            )
-            ip = self.parse_ip(record_type, data, record_rdlength, offset + nlen + 10)
-            return nlen + 10 + record_rdlength, \
-                (name, ip, record_type, record_class, record_ttl)
-        else:
-            record_type, record_class = struct.unpack(
-                '!HH', data[offset + nlen:offset + nlen + 4]
-            )
-            return nlen + 4, (name, None, record_type, record_class, None, None)
-
-
-    def parse_header(self, data):
-        if len(data) >= 12:
-            header = struct.unpack('!HBBHHHH', data[:12])
-            res_id = header[0]
-            res_qr = header[1] & 128
-            res_tc = header[1] & 2
-            res_ra = header[2] & 128
-            res_rcode = header[2] & 15
-            # assert res_tc == 0
-            # assert res_rcode in [0, 3]
-            res_qdcount = header[3]
-            res_ancount = header[4]
-            res_nscount = header[5]
-            res_arcount = header[6]
-            return (res_id, res_qr, res_tc, res_ra, res_rcode, res_qdcount,
-                    res_ancount, res_nscount, res_arcount)
-        return None
-
-
-    def parse_response(self, data):
-        try:
-            if len(data) >= 12:
-                header = self.parse_header(data)
-                if not header:
-                    return None
-                res_id, res_qr, res_tc, res_ra, res_rcode, res_qdcount, \
-                    res_ancount, res_nscount, res_arcount = header
-
-                qds = []
-                ans = []
-                offset = 12
-                for i in range(0, res_qdcount):
-                    l, r = self.parse_record(data, offset, True)
-                    offset += l
-                    if r:
-                        qds.append(r)
-                for i in range(0, res_ancount):
-                    l, r = self.parse_record(data, offset)
-                    offset += l
-                    if r:
-                        ans.append(r)
-                for i in range(0, res_nscount):
-                    l, r = self.parse_record(data, offset)
-                    offset += l
-                for i in range(0, res_arcount):
-                    l, r = self.parse_record(data, offset)
-                    offset += l
-                response = DNSResponse()
-                if qds:
-                    response.hostname = qds[0][0]
-                response.questions = qds
-                response.answers = ans
-                return response
-        except Exception as e:
-            logging.exception("parse dns rsponse error: %s", e)
-            return None
-
-    def is_valid_hostname(self, hostname):
-        if len(hostname) > 255:
-            return False
-        if hostname[-1] == b'.':
-            hostname = hostname[:-1]
-        return all(VALID_HOSTNAME.match(x) for x in hostname.split(b'.'))
 
     def inet_pton(self, family, addr):
         if family == socket.AF_INET:

@@ -10,10 +10,12 @@ from .loop import instance, MODE_IN, MODE_OUT
 from .dns import DNSResolver
 from .buffer import Buffer, cbuffer, RECV_BUFFER_SIZE
 
-STATE_STREAMING = 0x01
-STATE_BINDING = 0x02
-STATE_CLOSING = 0x04
-STATE_CLOSED = 0x06
+STATE_INITIALIZED = 0x01
+STATE_CONNECTING = 0x02
+STATE_STREAMING = 0x04
+STATE_BINDING = 0x08
+STATE_CLOSING = 0x10
+STATE_CLOSED = 0x20
 
 class Socket(EventEmitter):
     MAX_BUFFER_SIZE = None
@@ -41,20 +43,36 @@ class Socket(EventEmitter):
         self._write_handler = None
         self._has_drain_event = False
 
-        self._create_socket()
-
         self._max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE
         self._rbuffers = Buffer(max_buffer_size = self._max_buffer_size)
         self._wbuffers = None
         self._address_cache = {}
-        self._state = STATE_STREAMING
+        self._state = STATE_INITIALIZED
 
-    def _create_socket(self):
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
-        self._socket.setblocking(False)
-        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
-        self._write_handler = None
+    def _connect(self, address, callback):
+        def resolve_callback(hostname, ip):
+            if not ip:
+                return self._error(Exception('can not resolve hostname %s' % str(address)))
+
+            try:
+                addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_UDP)
+                # support both IPv4 and IPv6 addresses
+                if addrinfo:
+                    addr = addrinfo[0]
+                    self._socket = socket.socket(addr[0], addr[1], addr[2])
+                    self._socket.setblocking(False)
+                    self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                    self._write_handler = None
+                    callback((ip, address[1]))
+                else:
+                    return self._error(Exception('can not resolve hostname %s' % str(address)))
+            except socket.error as e:
+                if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
+                    return self._error(Exception("connect error %s %s" % (str(address), e)))
+
+        self._state = STATE_CONNECTING
+        self._dns_resolver.resolve(address[0], resolve_callback)
 
     def __del__(self):
         self.close()
@@ -240,12 +258,16 @@ class Socket(EventEmitter):
             return True
 
     def write(self, data):
-        if self._state not in (STATE_STREAMING, STATE_BINDING):
-            return False
-
         def do_write():
             if self._state not in (STATE_STREAMING, STATE_BINDING):
-                return False
+                if self._state == STATE_INITIALIZED:
+                    _, address = self._wbuffers[0]
+                    self._connect(address, lambda address: do_write())
+                    return False
+
+                if not self._socket:
+                    return False
+                self._state = STATE_STREAMING
 
             if not self._write_handler:
                 if self._write():
@@ -285,34 +307,21 @@ class Socket(EventEmitter):
             return do_write()
 
 class Socket6(Socket):
-    def _create_socket(self):
-        self._socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
-        self._socket.setblocking(False)
-        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
-        self._write_handler = None
+    pass
 
 class Server(Socket):
     def __init__(self, loop=None):
         super(Server, self).__init__(loop)
 
     def bind(self, address):
-        def do_bind(hostname, ip):
-            if not ip:
-                self.close()
-            elif self._state == STATE_BINDING:
-                self._socket.bind((ip, address[1]))
+        def do_bind(address):
+            self._socket.bind(address)
+            self._state = STATE_BINDING
 
-        self._state = STATE_BINDING
-        self._dns_resolver.resolve(address[0], do_bind)
+        self._connect(address, do_bind)
 
     def __del__(self):
         self.close()
 
 class Server6(Server):
-    def _create_socket(self):
-        self._socket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
-        self._socket.setblocking(False)
-        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
-        self._write_handler = None
+    pass

@@ -133,9 +133,8 @@ class EventEmitter(object):
                 setattr(self, "emit_" + event_name, callback)
                 return callback
 
-            callback = lambda *args, **kwargs: None
-            setattr(self, "emit_" + event_name, callback)
-            return callback
+            setattr(self, "emit_" + event_name, null_emit_callback)
+            return null_emit_callback
 
         elif item[:3] == "on_":
             return lambda *args, **kwargs: self.on(item[3:], *args, **kwargs)
