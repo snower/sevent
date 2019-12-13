@@ -165,13 +165,15 @@ class Socket(event.EventEmitter):
             if self._write_handler:
                 self._loop.remove_fd(self._socket, self._write_cb)
                 self._write_handler = False
-            try:
-                self._socket.close()
-            except Exception as e:
-                logging.error("socket close socket error:%s",e)
 
         self._state = STATE_CLOSED
         def on_close():
+            if self._socket:
+                try:
+                    self._socket.close()
+                except Exception as e:
+                    logging.error("socket close socket error:%s", e)
+
             try:
                 self.emit_close(self)
             except Exception as e:
