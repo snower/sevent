@@ -40,7 +40,7 @@ class Socket(EventEmitter):
 
         self._socket = None
         self._fileno = 0
-        self._socket_family = socket.AF_INET
+        self._socket_family = 2
         self._read_handler = None
         self._write_handler = None
         self._has_drain_event = False

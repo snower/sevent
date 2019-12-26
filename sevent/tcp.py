@@ -31,7 +31,7 @@ class Socket(event.EventEmitter):
         self._loop =loop or instance()
         self._socket = socket
         self._fileno = socket.fileno() if socket else 0
-        self._socket_family = socket.AF_INET
+        self._socket_family = 2
         self._address = address
         self._dns_resolver = dns_resolver or DNSResolver.default()
         self._connect_handler = False
