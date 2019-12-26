@@ -138,4 +138,4 @@ class EventEmitter(object):
 
         elif item[:3] == "on_":
             return lambda *args, **kwargs: self.on(item[3:], *args, **kwargs)
-        return super(EventEmitter, self).__getattr__(self, item)
+        return object.__getattribute__(self, item)

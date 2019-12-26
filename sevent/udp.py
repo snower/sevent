@@ -30,13 +30,6 @@ class Socket(EventEmitter):
         super(Socket, self).__init__()
         self._loop = loop or instance()
         self._dns_resolver = dns_resolver
-        if self._dns_resolver is None:
-            class DNSResolverProxy(object):
-                def __getattr__(proxy, name):
-                    if isinstance(self._dns_resolver, DNSResolverProxy):
-                        self._dns_resolver = DNSResolver.default()
-                    return getattr(self._dns_resolver, name)
-            self._dns_resolver = DNSResolverProxy()
 
         self._socket = None
         self._fileno = 0
@@ -76,6 +69,8 @@ class Socket(EventEmitter):
                     return self._error(Exception("connect error %s %s" % (str(address), e)))
 
         self._state = STATE_CONNECTING
+        if self._dns_resolver:
+            self._dns_resolver = DNSResolver.default()
         self._dns_resolver.resolve(address[0], resolve_callback)
 
     def __del__(self):
@@ -321,6 +316,9 @@ class Socket(EventEmitter):
                 self._address_cache[hostname] = ip
                 self._wbuffers.write(data, (ip, address[1]))
                 return do_write()
+
+            if self._dns_resolver:
+                self._dns_resolver = DNSResolver.default()
             self._dns_resolver.resolve(address[0], resolve_callback)
             return False
         else:
