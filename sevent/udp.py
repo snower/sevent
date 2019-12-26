@@ -69,7 +69,7 @@ class Socket(EventEmitter):
                     return self._error(Exception("connect error %s %s" % (str(address), e)))
 
         self._state = STATE_CONNECTING
-        if self._dns_resolver:
+        if not self._dns_resolver:
             self._dns_resolver = DNSResolver.default()
         self._dns_resolver.resolve(address[0], resolve_callback)
 
@@ -317,7 +317,7 @@ class Socket(EventEmitter):
                 self._wbuffers.write(data, (ip, address[1]))
                 return do_write()
 
-            if self._dns_resolver:
+            if not self._dns_resolver:
                 self._dns_resolver = DNSResolver.default()
             self._dns_resolver.resolve(address[0], resolve_callback)
             return False
