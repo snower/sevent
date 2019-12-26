@@ -2,8 +2,12 @@
 #include <structmember.h>
 #ifdef __VMS
 #   include <socket.h>
+#   include <netinet/in.h>
+#   include <arpa/inet.h>
 # else
 #   include <sys/socket.h>
+#   include <netinet/in.h>
+#   include <arpa/inet.h>
 # endif
 
 #if PY_MAJOR_VERSION >= 3
@@ -58,6 +62,8 @@ static int socket_recv_size = 8192 - sizeof(PyBytesObject);
 } else { \
     Py_DECREF(objbytes); \
 }
+
+static char sock_addr_host[64];
 
 typedef struct {
     PyObject_VAR_HEAD
@@ -727,6 +733,207 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
     return PyInt_FromLong(send_len);
 }
 
+static PyObject *
+Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
+{
+    int sock_fd;
+    int sa_family = AF_INET;
+    int max_len = 0x7fffffff;
+    if (!PyArg_ParseTuple(args, "i|ii", &sock_fd, &sa_family, &max_len)) {
+        return NULL;
+    }
+
+    struct sockaddr_in6 addr;
+    socklen_t addr_len = sizeof(struct sockaddr_in);
+    if (sa_family == AF_INET6) {
+        addr_len = sizeof(struct sockaddr_in6);
+    }
+
+    PyBytesObject* buf;
+    PyObject* addr_data;
+    Py_ssize_t result = 0;
+    Py_ssize_t recv_len = 0;
+
+    while (1) {
+        if(bytes_fast_buffer_index > 0) {
+            buf = bytes_fast_buffer[--bytes_fast_buffer_index];
+        } else {
+            buf = (PyBytesObject*)PyBytes_FromStringAndSize(0, socket_recv_size);
+            if(buf == NULL) {
+                return PyErr_NoMemory();
+            }
+        }
+
+        memset(&addr, 0, sizeof(struct sockaddr_in6));
+        result = recvfrom(sock_fd, buf->ob_sval, socket_recv_size, 0, (struct sockaddr*)&addr, &addr_len);
+        if(result < 0) {
+            if(bytes_fast_buffer_index < BYTES_FAST_BUFFER_COUNT) {
+                bytes_fast_buffer[bytes_fast_buffer_index++]=buf;
+            } else {
+                Py_DECREF(buf);
+            }
+            if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
+                return PyInt_FromLong(recv_len);
+            }
+            return PyErr_SetFromErrno(PyExc_OSError);
+        }
+
+        if(result == 0) {
+            if(bytes_fast_buffer_index < BYTES_FAST_BUFFER_COUNT) {
+                bytes_fast_buffer[bytes_fast_buffer_index++]=buf;
+            } else {
+                Py_DECREF(buf);
+            }
+            return PyInt_FromLong(recv_len);
+        }
+
+        Py_SIZE(buf) = result;
+        if (inet_ntop(sa_family, sa_family == AF_INET ? (void*)&((struct sockaddr_in*)&addr)->sin_addr : (void*)&((struct sockaddr_in6*)&addr)->sin6_addr,
+                               sock_addr_host, 64) == NULL) {
+            if(bytes_fast_buffer_index < BYTES_FAST_BUFFER_COUNT) {
+                bytes_fast_buffer[bytes_fast_buffer_index++]=buf;
+            } else {
+                Py_DECREF(buf);
+            }
+            PyErr_SetString(PyExc_OSError, "inet_ntop error");
+            return NULL;
+        }
+        if (sa_family == AF_INET) {
+            addr_data = PyTuple_Pack(2, PyString_FromString(sock_addr_host), PyInt_FromLong(ntohs(((struct sockaddr_in*)&addr)->sin_port)));
+        } else {
+            addr_data = PyTuple_Pack(4, PyString_FromString(sock_addr_host), PyInt_FromLong(ntohs(((struct sockaddr_in6*)&addr)->sin6_port)),
+                                     PyInt_FromLong(ntohl(((struct sockaddr_in6*)&addr)->sin6_flowinfo)), PyInt_FromLong(((struct sockaddr_in6*)&addr)->sin6_scope_id));
+        }
+
+        BufferQueue* queue;
+        if(buffer_queue_fast_buffer_index > 0) {
+            queue = buffer_queue_fast_buffer[--buffer_queue_fast_buffer_index];
+            queue->flag = 0x01;
+        } else {
+            queue = (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue));
+            if(queue == NULL) {
+                return PyErr_NoMemory();
+            }
+            queue->flag = 0x01;
+            queue->next = NULL;
+        }
+        queue->odata = addr_data;
+        buf->ob_sval[result] = '\0';
+        queue->buffer = buf;
+
+        if(objbuf->buffer_tail == NULL) {
+            objbuf->buffer_head = queue;
+            objbuf->buffer_tail = queue;
+        } else {
+            objbuf->buffer_tail->next = queue;
+            objbuf->buffer_tail = queue;
+        }
+        Py_SIZE(objbuf) += result;
+        recv_len += result;
+        if(recv_len > max_len) {
+            return PyInt_FromLong(recv_len);
+        }
+    }
+}
+
+static PyObject *
+Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
+{
+    int sock_fd;
+    int sa_family = AF_INET;
+    if (!PyArg_ParseTuple(args, "i|i", &sock_fd, &sa_family)) {
+        return NULL;
+    }
+
+    struct sockaddr_in6 addr;
+    socklen_t addr_len = sizeof(struct sockaddr_in);
+    if (sa_family == AF_INET6) {
+        addr_len = sizeof(struct sockaddr_in6);
+    }
+
+    Py_ssize_t result = 0;
+    Py_ssize_t send_len = 0;
+    BufferQueue* last_queue;
+
+    char *host;
+    int port;
+    unsigned int flowinfo = 0, scope_id = 0;
+
+    while (objbuf->buffer_head != NULL) {
+        if (objbuf->buffer_head->odata == NULL || !PyTuple_Check(objbuf->buffer_head->odata)) {
+            PyErr_SetString(PyExc_OSError, "buffer data must be sock address");
+            return NULL;
+        }
+
+        if (sa_family == AF_INET) {
+            if (!PyArg_ParseTuple(objbuf->buffer_head->odata, "eti", "idna", &host, &port)) {
+                return NULL;
+            }
+            if(inet_pton(sa_family, host, &((struct sockaddr_in*)&addr)->sin_addr) != 1) {
+                PyMem_Free(host);
+                PyErr_SetString(PyExc_OSError, "inet_pton error");
+                return NULL;
+            }
+            PyMem_Free(host);
+            if (port < 0 || port > 0xffff) {
+                PyErr_SetString(PyExc_OverflowError, "port must be 0-65535.");
+                return NULL;
+            }
+            ((struct sockaddr_in*)&addr)->sin_family = AF_INET;
+            ((struct sockaddr_in*)&addr)->sin_port = htons((short)port);
+        } else {
+            if (!PyArg_ParseTuple(objbuf->buffer_head->odata, "eti|II", "idna", &host, &port, &flowinfo, &scope_id)) {
+                return NULL;
+            }
+            if(inet_pton(sa_family, host, &((struct sockaddr_in6*)&addr)->sin6_addr) != 1) {
+                PyMem_Free(host);
+                PyErr_SetString(PyExc_OSError, "inet_pton error");
+                return NULL;
+            }
+            PyMem_Free(host);
+            if (port < 0 || port > 0xffff) {
+                PyErr_SetString(PyExc_OverflowError, "port must be 0-65535.");
+                return NULL;
+            }
+            if (flowinfo > 0xfffff) {
+                PyErr_SetString(PyExc_OverflowError, "flowinfo must be 0-1048575.");
+                return NULL;
+            }
+            ((struct sockaddr_in6*)&addr)->sin6_family = AF_INET6;
+            ((struct sockaddr_in6*)&addr)->sin6_port = htons((short)port);
+            ((struct sockaddr_in6*)&addr)->sin6_flowinfo = htonl(flowinfo);
+            ((struct sockaddr_in6*)&addr)->sin6_scope_id = scope_id;
+        }
+
+        result = sendto(sock_fd, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset, 0, (struct sockaddr*)&addr, addr_len);
+        if(result < 0) {
+            if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
+                return PyInt_FromLong(send_len);
+            }
+            return PyErr_SetFromErrno(PyExc_OSError);
+        }
+
+        if(result == 0) {
+            return PyInt_FromLong(send_len);
+        }
+
+        objbuf->buffer_offset += result;
+        Py_SIZE(objbuf) -= result;
+        send_len += result;
+        if(objbuf->buffer_offset >= Py_SIZE(objbuf->buffer_head->buffer)) {
+            objbuf->buffer_offset = 0;
+            last_queue = objbuf->buffer_head;
+            objbuf->buffer_head = objbuf->buffer_head->next;
+            PyBytesObject_free(last_queue->buffer, last_queue);
+            BufferQueue_free(last_queue);
+            if(objbuf->buffer_head == NULL) {
+                objbuf->buffer_tail = NULL;
+            }
+        }
+    }
+    return PyInt_FromLong(send_len);
+}
+
 static PyObject*
 Buffer_buffer_getter(register BufferObject *objbuf, void *args) {
     if(Py_SIZE(objbuf) == 0) {
@@ -794,6 +1001,8 @@ static PyMethodDef Buffer_methods[] = {
         {"next", (PyCFunction)Buffer_next, METH_VARARGS, "buffer next"},
         {"socket_send", (PyCFunction)Buffer_socket_send, METH_VARARGS, "buffer socket_send"},
         {"socket_recv", (PyCFunction)Buffer_socket_recv, METH_VARARGS, "buffer socket_recv"},
+        {"socket_sendto", (PyCFunction)Buffer_socket_sendto, METH_VARARGS, "buffer socket_sendto"},
+        {"socket_recvfrom", (PyCFunction)Buffer_socket_recvfrom, METH_VARARGS, "buffer socket_recvfrom"},
         {NULL}  /* Sentinel */
 };
 

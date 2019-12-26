@@ -39,6 +39,8 @@ class Socket(EventEmitter):
             self._dns_resolver = DNSResolverProxy()
 
         self._socket = None
+        self._fileno = 0
+        self._socket_family = socket.AF_INET
         self._read_handler = None
         self._write_handler = None
         self._has_drain_event = False
@@ -60,6 +62,8 @@ class Socket(EventEmitter):
                 if addrinfo:
                     addr = addrinfo[0]
                     self._socket = socket.socket(addr[0], addr[1], addr[2])
+                    self._fileno = self._socket.fileno()
+                    self._socket_family = addr[0]
                     self._socket.setblocking(False)
                     self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
@@ -173,22 +177,43 @@ class Socket(EventEmitter):
 
     def _read_cb(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
-            self._read()
+            if self._read():
+                self._loop.add_async(self.emit_data, self, self._rbuffers)
 
-    def _read(self):
-        last_data_len = self._rbuffers._len
-        while self._read_handler:
+    if cbuffer is None:
+        def _read(self):
+            last_data_len = self._rbuffers._len
+            while self._read_handler:
+                try:
+                    data, address = self._socket.recvfrom(self.RECV_BUFFER_SIZE)
+                    self._rbuffers.write(data, address)
+                except socket.error as e:
+                    if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
+                        break
+                    else:
+                        self._error(e)
+                        if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+                            self._rbuffers.do_drain()
+                        return False
+
+            if last_data_len < self._rbuffers._len:
+                if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+                    self._rbuffers.do_drain()
+                return True
+            return False
+    else:
+        def _read(self):
             try:
-                data, address = self._socket.recvfrom(self.RECV_BUFFER_SIZE)
-                self._rbuffers.write(data, address)
-            except socket.error as e:
-                if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                    break
-                else:
-                    return self._error(e)
+                r = self._rbuffers.socket_recvfrom(self._fileno, self._socket_family)
+            except Exception as e:
+                self._error(e)
+                if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+                    self._rbuffers.do_drain()
+                return False
 
-        if last_data_len < self._rbuffers._len:
-            self._loop.add_async(self.emit_data, self, self._rbuffers)
+            if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+                self._rbuffers.do_drain()
+            return r
 
     def _write_cb(self):
         if self._state != STATE_CLOSED:
@@ -238,26 +263,17 @@ class Socket(EventEmitter):
             return True
     else:
         def _write(self):
-            while self._wbuffers:
-                data, address = self._wbuffers._buffer
-                try:
-                    if self._wbuffers._buffer_index > 0:
-                        r = self._socket.sendto(memoryview(data)[self._wbuffers._buffer_index:], address)
-                    else:
-                        r = self._socket.sendto(data, address)
-                    if r > 0:
-                        self._wbuffers.read(r)
-
-                    if self._wbuffers._buffer_index < self._wbuffers._buffer_len:
-                        if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
-                            self._wbuffers.do_regain()
-                        return False
-                except socket.error as e:
-                    if e.args[0] not in (errno.EWOULDBLOCK, errno.EAGAIN):
-                        self._error(e)
+            try:
+                self._wbuffers.socket_sendto(self._fileno, self._socket_family)
+                if self._wbuffers:
                     if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
                         self._wbuffers.do_regain()
                     return False
+            except Exception as e:
+                self._error(e)
+                if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
+                    self._wbuffers.do_regain()
+                return False
 
             if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
                 self._wbuffers.do_regain()

@@ -31,6 +31,7 @@ class Socket(event.EventEmitter):
         self._loop =loop or instance()
         self._socket = socket
         self._fileno = socket.fileno() if socket else 0
+        self._socket_family = socket.AF_INET
         self._address = address
         self._dns_resolver = dns_resolver or DNSResolver.default()
         self._connect_handler = False
@@ -234,6 +235,7 @@ class Socket(event.EventEmitter):
                     addr = addrinfo[0]
                     self._socket = socket.socket(addr[0], addr[1], addr[2])
                     self._fileno = self._socket.fileno()
+                    self._socket_family = addr[0]
                     self._socket.setblocking(False)
                     self._address = addr[4]
                     self._is_resolve = True
@@ -313,16 +315,22 @@ class Socket(event.EventEmitter):
                 try:
                     data = self._socket.recv(self.RECV_BUFFER_SIZE)
                     if not data:
-                        return False
+                        break
                     self._rbuffers.write(data)
                 except socket.error as e:
                     if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                         break
                     else:
                         self._error(e)
+                        if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+                            self._rbuffers.do_drain()
                         return False
 
-            return last_data_len < self._rbuffers._len
+            if last_data_len < self._rbuffers._len:
+                if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+                    self._rbuffers.do_drain()
+                return True
+            return False
     else:
         def _read(self):
             try:
