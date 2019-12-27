@@ -859,6 +859,7 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
     if (sa_family == AF_INET6) {
         addr_len = sizeof(struct sockaddr_in6);
     }
+    memset(&addr, 0, sizeof(struct sockaddr_in6));
     ((struct sockaddr_in6*)&addr)->sin6_family = sa_family;
 
     Py_ssize_t result = 0;
