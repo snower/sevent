@@ -24,7 +24,7 @@ else:
 
     iter_range = xrange
 
-def ensure_types(s):
+def ensure_bytes(s):
     if isinstance(s, unicode_type):
         return s.encode("utf-8")
     return s

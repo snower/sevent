@@ -62,7 +62,7 @@ class EventEmitter(object):
 
     def remove_all_listeners(self, event_name=None):
         if event_name is None:
-            for event_name in set(self._events.keys() + self._events_once.keys()):
+            for event_name in set(list(self._events.keys()) + list(self._events_once.keys())):
                 setattr(self, "emit_" + event_name, null_emit_callback)
             self._events = defaultdict(set)
             self._events_once = defaultdict(set)

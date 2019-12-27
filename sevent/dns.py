@@ -9,7 +9,7 @@ import dnslib
 from collections import defaultdict
 from .loop import instance
 from .event import EventEmitter
-from .utils import ensure_types, is_py3
+from .utils import ensure_bytes, is_py3
 
 QTYPE_ANY = 255
 QTYPE_A = 1
@@ -175,7 +175,7 @@ class DNSResolver(EventEmitter):
                             if len(parts) >= 2:
                                 server = parts[1]
                                 if self.is_ip(server):
-                                    if type(server) != str:
+                                    if is_py3 and type(server) != str:
                                         server = server.decode('utf8')
                                     servers.append(server)
         except IOError:
@@ -204,12 +204,13 @@ class DNSResolver(EventEmitter):
                                 if hostname:
                                     self._hosts[hostname] = ip
         except IOError:
-            self._hosts['localhost'] = '127.0.0.1'
+            self._hosts[b'localhost'] = '127.0.0.1'
 
     def call_callback(self, hostname, ip):
         if not self._queue[hostname]:
             return
         callbacks = self._queue.pop(hostname)
+        hostname = hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname
         for callback in callbacks:
             self._loop.add_async(callback, hostname, ip)
 
@@ -220,7 +221,7 @@ class DNSResolver(EventEmitter):
             data, address = buffer.next()
             try:
                 answer = dnslib.DNSRecord.parse(data)
-                hostname = ".".join(answer.q.qname.label)
+                hostname = b".".join(answer.q.qname.label)
                 rrs = [rr for rr in answer.rr if rr.rtype == answer.q.qtype]
                 self._loading[hostname] -= 1
 
@@ -233,7 +234,7 @@ class DNSResolver(EventEmitter):
                 if self._loading[hostname] <= 0:
                     self._loading.pop(hostname)
             except Exception as e:
-                continue
+                pass
 
     def send_req(self, hostname, server_index = 0):
         if not self._servers:
@@ -271,18 +272,18 @@ class DNSResolver(EventEmitter):
 
     def resolve(self, hostname, callback, timeout = None):
         if self._status == STATUS_CLOSED:
-            return callback(hostname, None)
+            return callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, None)
 
-        hostname = ensure_types(hostname)
+        hostname = ensure_bytes(hostname)
         if not hostname:
-            callback(hostname, None)
+            callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, None)
 
         elif self.is_ip(hostname):
-            callback(hostname, hostname)
+            callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, hostname)
         elif hostname in self._hosts:
-            callback(hostname, self._hosts[hostname])
+            callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, self._hosts[hostname])
         elif hostname in self._cache:
-            callback(hostname, self._cache[hostname])
+            callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, self._cache[hostname])
         else:
             try:
                 if not self._queue[hostname]:
@@ -333,9 +334,9 @@ class DNSResolver(EventEmitter):
                 v4addr = addr[addr.rindex(':') + 1:]
                 v4addr = socket.inet_aton(v4addr)
                 if is_py3:
-                    v4addr = list(map(lambda x: ('%02X' % x), ensure_types(v4addr)))
+                    v4addr = list(map(lambda x: ('%02X' % x), ensure_bytes(v4addr)))
                 else:
-                    v4addr = map(lambda x: ('%02X' % ord(x)), ensure_types(v4addr))
+                    v4addr = map(lambda x: ('%02X' % ord(x)), ensure_bytes(v4addr))
                 v4addr.insert(2, ':')
                 newaddr = addr[:addr.rindex(':') + 1] + ''.join(v4addr)
                 return self.inet_pton(family, newaddr)
@@ -360,7 +361,7 @@ class DNSResolver(EventEmitter):
     def is_ip(self, address):
         for family in (socket.AF_INET, socket.AF_INET6):
             try:
-                if type(address) != str:
+                if is_py3 and type(address) != str:
                     address = address.decode('utf8')
                 self.inet_pton(family, address)
                 return family

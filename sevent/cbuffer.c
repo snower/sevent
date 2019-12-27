@@ -12,8 +12,17 @@
 
 #if PY_MAJOR_VERSION >= 3
 #define PyInt_FromLong PyLong_FromLong
+#define PyInt_CheckExact PyLong_CheckExact
+#define PyInt_AS_LONG PyLong_AsLong
+
+#define PyString_FromString PyUnicode_FromString
+#define PyString_CheckExact PyUnicode_CheckExact
+#define PyString_AS_STRING PyUnicode_AsUTF8
+#define PyStringB_CheckExact PyBytes_CheckExact
+#define PyStringB_AS_STRING PyBytes_AS_STRING
 #else
-#define PyInt_FromLong PyInt_FromLong
+#define PyStringB_CheckExact PyUnicode_CheckExact
+#define PyStringB_AS_STRING(op) PyString_AS_STRING(PyUnicode_AsUTF8String(op))
 #endif
 
 #define CHECK_ERRNO(expected) (errno == expected)
@@ -795,7 +804,7 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
             } else {
                 Py_DECREF(buf);
             }
-            PyErr_SetString(PyExc_OSError, "inet_ntop error");
+            PyErr_SetString(PyExc_OSError, "host inet_ntop error");
             return NULL;
         }
         if (sa_family == AF_INET) {
@@ -850,59 +859,85 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
     if (sa_family == AF_INET6) {
         addr_len = sizeof(struct sockaddr_in6);
     }
+    ((struct sockaddr_in6*)&addr)->sin6_family = sa_family;
 
     Py_ssize_t result = 0;
     Py_ssize_t send_len = 0;
     BufferQueue* last_queue;
 
-    char *host;
-    int port;
-    unsigned int flowinfo = 0, scope_id = 0;
+    PyObject* host;
+    PyObject* port;
+    PyObject* flowinfo;
+    PyObject* scope_id;
 
     while (objbuf->buffer_head != NULL) {
-        if (objbuf->buffer_head->odata == NULL || !PyTuple_Check(objbuf->buffer_head->odata)) {
+        if (objbuf->buffer_head->odata == NULL || !PyTuple_CheckExact(objbuf->buffer_head->odata)) {
             PyErr_SetString(PyExc_OSError, "buffer data must be sock address");
             return NULL;
         }
 
-        if (sa_family == AF_INET) {
-            if (!PyArg_ParseTuple(objbuf->buffer_head->odata, "eti", "idna", &host, &port)) {
+        if(PyTuple_GET_SIZE(objbuf->buffer_head->odata) < 2) {
+            PyErr_SetString(PyExc_OSError, "sock address must be has host and port");
+            return NULL;
+        }
+
+        host = PyTuple_GET_ITEM(objbuf->buffer_head->odata, 0);
+        if (!PyString_CheckExact(host)) {
+            if(!PyStringB_CheckExact(host)) {
+                PyErr_SetString(PyExc_OSError, "sock host must be string");
                 return NULL;
+            } else {
+                if(inet_pton(sa_family, PyStringB_AS_STRING(host),
+                        sa_family == AF_INET ? (void *)&((struct sockaddr_in*)&addr)->sin_addr : (void *)&((struct sockaddr_in6*)&addr)->sin6_addr) != 1) {
+                    PyErr_SetString(PyExc_OSError, "host inet_pton error");
+                    return NULL;
+                }
             }
-            if(inet_pton(sa_family, host, &((struct sockaddr_in*)&addr)->sin_addr) != 1) {
-                PyMem_Free(host);
-                PyErr_SetString(PyExc_OSError, "inet_pton error");
-                return NULL;
-            }
-            PyMem_Free(host);
-            if (port < 0 || port > 0xffff) {
-                PyErr_SetString(PyExc_OverflowError, "port must be 0-65535.");
-                return NULL;
-            }
-            ((struct sockaddr_in*)&addr)->sin_family = AF_INET;
-            ((struct sockaddr_in*)&addr)->sin_port = htons((short)port);
         } else {
-            if (!PyArg_ParseTuple(objbuf->buffer_head->odata, "eti|II", "idna", &host, &port, &flowinfo, &scope_id)) {
+            if(inet_pton(sa_family, PyString_AS_STRING(host),
+                    sa_family == AF_INET ? (void *)&((struct sockaddr_in*)&addr)->sin_addr : (void *)&((struct sockaddr_in6*)&addr)->sin6_addr) != 1) {
+                PyErr_SetString(PyExc_OSError, "host inet_pton error");
                 return NULL;
             }
-            if(inet_pton(sa_family, host, &((struct sockaddr_in6*)&addr)->sin6_addr) != 1) {
-                PyMem_Free(host);
-                PyErr_SetString(PyExc_OSError, "inet_pton error");
-                return NULL;
+        }
+
+        port = PyTuple_GET_ITEM(objbuf->buffer_head->odata, 1);
+        if (!PyInt_CheckExact(port)) {
+            PyErr_SetString(PyExc_OSError, "sock host must be number");
+            return NULL;
+        }
+        if (PyInt_AS_LONG(port) < 0 || PyInt_AS_LONG(port) > 0xffff) {
+            PyErr_SetString(PyExc_OverflowError, "sock port must be 0-65535.");
+            return NULL;
+        }
+        ((struct sockaddr_in*)&addr)->sin_port = htons((short)PyInt_AS_LONG(port));
+
+        if (sa_family == AF_INET6) {
+            if (PyTuple_GET_SIZE(objbuf->buffer_head->odata) >= 3) {
+                flowinfo = PyTuple_GET_ITEM(objbuf->buffer_head->odata, 2);
+                if (!PyInt_CheckExact(flowinfo)) {
+                    PyErr_SetString(PyExc_OSError, "sock flowinfo must be number");
+                    return NULL;
+                }
+                if (PyInt_AS_LONG(flowinfo) > 0xfffff) {
+                    PyErr_SetString(PyExc_OverflowError, "flowinfo must be 0-1048575.");
+                    return NULL;
+                }
+                ((struct sockaddr_in6*)&addr)->sin6_flowinfo = htonl((unsigned int)PyInt_AS_LONG(flowinfo));
+            } else {
+                ((struct sockaddr_in6*)&addr)->sin6_flowinfo = htonl(0);
             }
-            PyMem_Free(host);
-            if (port < 0 || port > 0xffff) {
-                PyErr_SetString(PyExc_OverflowError, "port must be 0-65535.");
-                return NULL;
+
+            if (PyTuple_GET_SIZE(objbuf->buffer_head->odata) >= 4) {
+                scope_id = PyTuple_GET_ITEM(objbuf->buffer_head->odata, 3);
+                if (!PyInt_CheckExact(scope_id)) {
+                    PyErr_SetString(PyExc_OSError, "sock flowinfo must be number");
+                    return NULL;
+                }
+                ((struct sockaddr_in6*)&addr)->sin6_flowinfo = (unsigned int)PyInt_AS_LONG(scope_id);
+            } else {
+                ((struct sockaddr_in6*)&addr)->sin6_flowinfo = 0;
             }
-            if (flowinfo > 0xfffff) {
-                PyErr_SetString(PyExc_OverflowError, "flowinfo must be 0-1048575.");
-                return NULL;
-            }
-            ((struct sockaddr_in6*)&addr)->sin6_family = AF_INET6;
-            ((struct sockaddr_in6*)&addr)->sin6_port = htons((short)port);
-            ((struct sockaddr_in6*)&addr)->sin6_flowinfo = htonl(flowinfo);
-            ((struct sockaddr_in6*)&addr)->sin6_scope_id = scope_id;
         }
 
         result = sendto(sock_fd, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset, 0, (struct sockaddr*)&addr, addr_len);
