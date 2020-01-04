@@ -110,27 +110,27 @@ class IOLoop(object):
 
     def add_fd(self, fd, mode, callback):
         if not is_int(fd):
-            try:
-                fd = fd.fileno()
-            except:
-                return False
+            fd = fd.fileno()
         handlers = self._fd_handlers[fd]
-        handlers.append((callback, fd, mode))
-        if len(handlers) == 1:
+        new_handlers = []
+        if not handlers:
+            new_handlers.append((callback, fd, mode))
             self._add_fd(fd, mode)
         else:
             new_mode = MODE_NULL
             for hcallback, hfd, hmode in handlers:
-                new_mode |= hmode
+                if hcallback != callback:
+                    new_mode |= hmode
+                    new_handlers.append((hcallback, hfd, hmode))
+            new_handlers.append((callback, fd, mode))
+            new_mode |= mode
             self._modify_fd(fd, new_mode)
+        self._fd_handlers[fd] = new_handlers
         return True
 
     def update_fd(self, fd, mode, callback):
         if not is_int(fd):
-            try:
-                fd = fd.fileno()
-            except:
-                return False
+            fd = fd.fileno()
 
         handlers = self._fd_handlers[fd]
         if not handlers:
@@ -150,10 +150,7 @@ class IOLoop(object):
 
     def remove_fd(self, fd, callback):
         if not is_int(fd):
-            try:
-                fd = fd.fileno()
-            except:
-                return False
+            fd = fd.fileno()
 
         handlers = self._fd_handlers[fd]
         if not handlers:
@@ -172,6 +169,17 @@ class IOLoop(object):
             self._modify_fd(fd, new_mode)
             self._fd_handlers[fd] = new_handlers
         return True
+
+    def clear_fd(self, fd):
+        if not is_int(fd):
+            fd = fd.fileno()
+        if fd in self._fd_handlers:
+            if self._fd_handlers[fd]:
+                del self._fd_handlers[fd]
+                self._remove_fd(fd)
+                return True
+            del self._fd_handlers[fd]
+        return False
 
     def start(self):
         while not self._stopped:

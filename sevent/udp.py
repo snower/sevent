@@ -59,7 +59,11 @@ class Socket(EventEmitter):
                     self._socket_family = addr[0]
                     self._socket.setblocking(False)
                     self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                    try:
+                        self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                    except Exception as e:
+                        self._error(e)
+                        return
                     self._write_handler = None
                     callback((ip, address[1]))
                 else:
@@ -130,15 +134,25 @@ class Socket(EventEmitter):
         if self._state == STATE_CLOSED:
             return
         if self._read_handler:
-            self._loop.remove_fd(self._socket, self._read_cb)
+            try:
+                self._loop.remove_fd(self._socket, self._read_cb)
+            except Exception as e:
+                logging.error("socket close remove_fd error:%s", e)
             self._read_handler = False
         if self._write_handler:
-            self._loop.remove_fd(self._socket, self._write_cb)
+            try:
+                self._loop.remove_fd(self._socket, self._write_cb)
+            except Exception as e:
+                logging.error("socket close remove_fd error:%s", e)
             self._write_handler = False
 
         self._state = STATE_CLOSED
         def on_close():
             if self._socket:
+                try:
+                    self._loop.clear_fd(self._socket)
+                except Exception as e:
+                    logging.error("server close clear_fd error: %s", e)
                 try:
                     self._socket.close()
                 except Exception as e:
@@ -162,13 +176,20 @@ class Socket(EventEmitter):
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             if self._read_handler:
-                self._loop.remove_fd(self._socket, self._read_cb)
+                try:
+                    self._loop.remove_fd(self._socket, self._read_cb)
+                except Exception as e:
+                    self._error(e)
+                    return
                 self._read_handler = False
 
     def regain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             if not self._read_handler:
-                self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                try:
+                    self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                except Exception as e:
+                    self._error(e)
 
     def _read_cb(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
@@ -190,6 +211,9 @@ class Socket(EventEmitter):
                         if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                             self._rbuffers.do_drain()
                         return False
+                except Exception as e:
+                    self._error(e)
+                    return
 
             if last_data_len < self._rbuffers._len:
                 if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
@@ -216,7 +240,11 @@ class Socket(EventEmitter):
                 if self._has_drain_event:
                     self._loop.add_async(self.emit_drain, self)
                 if self._write_handler:
-                    self._loop.remove_fd(self._socket, self._write_cb)
+                    try:
+                        self._loop.remove_fd(self._socket, self._write_cb)
+                    except Exception as e:
+                        self._error(e)
+                        return
                     self._write_handler = False
 
                 if self._state == STATE_CLOSING:
@@ -255,6 +283,9 @@ class Socket(EventEmitter):
                     if data._full and data._len < data._regain_size:
                         data.do_regain()
                     return False
+                except Exception as e:
+                    self._error(e)
+                    return
             return True
     else:
         def _write(self):
@@ -291,9 +322,10 @@ class Socket(EventEmitter):
                     if self._has_drain_event:
                         self._loop.add_async(self.emit_drain, self)
                     return True
-                self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
-                if not self._write_handler:
-                    self._error(Exception("write data add fd error"))
+                try:
+                    self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+                except Exception as e:
+                    self._error(e)
             return False
 
         if data.__class__ == Buffer:

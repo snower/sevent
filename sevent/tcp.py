@@ -51,7 +51,10 @@ class Socket(event.EventEmitter):
         if self._socket:
             self._state = STATE_STREAMING
             self._socket.setblocking(False)
-            self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+            try:
+                self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+            except Exception as e:
+                self._error(e)
 
     @property
     def address(self):
@@ -157,19 +160,32 @@ class Socket(event.EventEmitter):
             return
 
         if self._state == STATE_CONNECTING and self._connect_handler:
-            self._loop.remove_fd(self._socket, self._connect_cb)
+            try:
+                self._loop.remove_fd(self._socket, self._connect_cb)
+            except Exception as e:
+                logging.error("socket close remove_fd error:%s", e)
             self._connect_handler = False
         elif self._state in (STATE_STREAMING, STATE_CLOSING):
             if self._read_handler:
-                self._loop.remove_fd(self._socket, self._read_cb)
+                try:
+                    self._loop.remove_fd(self._socket, self._read_cb)
+                except Exception as e:
+                    logging.error("socket close remove_fd error:%s", e)
                 self._read_handler = False
             if self._write_handler:
-                self._loop.remove_fd(self._socket, self._write_cb)
+                try:
+                    self._loop.remove_fd(self._socket, self._write_cb)
+                except Exception as e:
+                    logging.error("socket close remove_fd error:%s", e)
                 self._write_handler = False
 
         self._state = STATE_CLOSED
         def on_close():
             if self._socket:
+                try:
+                    self._loop.clear_fd(self._socket)
+                except Exception as e:
+                    logging.error("server close clear_fd error: %s", e)
                 try:
                     self._socket.close()
                 except Exception as e:
@@ -192,7 +208,11 @@ class Socket(event.EventEmitter):
     def _connect_cb(self):
         if self._state != STATE_CONNECTING:
             return
-        self._loop.remove_fd(self._socket, self._connect_cb)
+        try:
+            self._loop.remove_fd(self._socket, self._connect_cb)
+        except Exception as e:
+            self._error(e)
+            return
         self._connect_handler = False
 
         if self._connect_timeout_handler:
@@ -200,15 +220,21 @@ class Socket(event.EventEmitter):
             self._connect_timeout_handler = None
 
         self._state = STATE_STREAMING
-        self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+        try:
+            self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+        except Exception as e:
+            self._error(e)
+            return
+
         self._rbuffers.on("drain", lambda _: self.drain())
         self._rbuffers.on("regain", lambda _: self.regain())
         self._loop.add_async(self.emit_connect, self)
 
         if self._wbuffers and not self._write_handler:
-            self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
-            if not self._write_handler:
-                self._error(Exception("write data add fd error"))
+            try:
+                self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+            except Exception as e:
+                self._error(e)
 
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:
@@ -269,7 +295,11 @@ class Socket(event.EventEmitter):
                     return
 
             if not self._is_enable_fast_open:
-                self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                try:
+                    self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                except Exception as e:
+                    self._error(e)
+                    return
 
         self._dns_resolver.resolve(address[0], do_connect)
         self._connect_timeout_handler = self._loop.add_timeout(timeout, on_timeout_cb)
@@ -278,13 +308,20 @@ class Socket(event.EventEmitter):
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
             if self._read_handler:
-                self._loop.remove_fd(self._socket, self._read_cb)
+                try:
+                    self._loop.remove_fd(self._socket, self._read_cb)
+                except Exception as e:
+                    self._error(e)
+                    return
                 self._read_handler = False
 
     def regain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
             if not self._read_handler:
-                self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                try:
+                    self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                except Exception as e:
+                    self._error(e)
 
     def _read_cb(self):
         if self._state == STATE_CONNECTING:
@@ -325,6 +362,9 @@ class Socket(event.EventEmitter):
                         if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                             self._rbuffers.do_drain()
                         return False
+                except Exception as e:
+                    self._error(e)
+                    return False
 
             if last_data_len < self._rbuffers._len:
                 if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
@@ -353,7 +393,11 @@ class Socket(event.EventEmitter):
                     if self._has_drain_event:
                         self._loop.add_async(self.emit_drain, self)
                 if self._write_handler:
-                    self._loop.remove_fd(self._socket, self._write_cb)
+                    try:
+                        self._loop.remove_fd(self._socket, self._write_cb)
+                    except Exception as e:
+                        self._error(e)
+                        return
                     self._write_handler = False
                 if self._state == STATE_CLOSING:
                     self.close()
@@ -363,7 +407,11 @@ class Socket(event.EventEmitter):
             if self._has_drain_event:
                 self._loop.add_async(self.emit_drain, self)
             if self._write_handler:
-                self._loop.remove_fd(self._socket, self._write_cb)
+                try:
+                    self._loop.remove_fd(self._socket, self._write_cb)
+                except Exception as e:
+                    self._error(e)
+                    return
                 self._write_handler = False
             if self._state == STATE_CLOSING:
                 self.close()
@@ -385,11 +433,17 @@ class Socket(event.EventEmitter):
                 self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
             except socket.error as e:
                 if e.args[0] == errno.EINPROGRESS:
-                    self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                    try:
+                        self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                    except Exception as e:
+                        self._error(e)
                     return False
                 elif e.args[0] == errno.ENOTCONN:
                     logging.error('fast open not supported on this OS')
                     self._is_enable_fast_open = False
+                self._error(e)
+                return False
+            except Exception as e:
                 self._error(e)
                 return False
 
@@ -424,6 +478,9 @@ class Socket(event.EventEmitter):
                         self._error(e)
                     if data._full and data._len < data._regain_size:
                         data.do_regain()
+                    return False
+                except Exception as e:
+                    self._error(e)
                     return False
             return True
     else:
@@ -481,9 +538,10 @@ class Socket(event.EventEmitter):
                 if self._has_drain_event:
                     self._loop.add_async(self.emit_drain, self)
                 return True
-            self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
-            if not self._write_handler:
-                self._error(Exception("write data add fd error"))
+            try:
+                self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+            except Exception as e:
+                self._error(e)
         return False
 
 
@@ -567,7 +625,11 @@ class Server(event.EventEmitter):
                         self._is_enable_fast_open = False
 
                 self._socket.bind(addr[4])
-                self._accept_handler = self._loop.add_fd(self._socket, MODE_IN, self._accept_cb)
+                try:
+                    self._accept_handler = self._loop.add_fd(self._socket, MODE_IN, self._accept_cb)
+                except Exception as e:
+                    self._error(e)
+                    return
                 self._socket.listen(backlog)
             else:
                 self._error(Exception('can not resolve hostname %s' % str(address)))
@@ -593,9 +655,16 @@ class Server(event.EventEmitter):
     def close(self):
         if self._state in (STATE_INITIALIZED, STATE_LISTENING):
             if self._accept_handler:
-                self._loop.remove_fd(self._socket, self._accept_cb)
+                try:
+                    self._loop.remove_fd(self._socket, self._accept_cb)
+                except Exception as e:
+                    logging.error("server close remove_fd error: %s", e)
                 self._accept_handler = False
             if self._socket is not None:
+                try:
+                    self._loop.clear_fd(self._socket)
+                except Exception as e:
+                    logging.error("server close clear_fd error: %s", e)
                 try:
                     self._socket.close()
                 except Exception as e:
