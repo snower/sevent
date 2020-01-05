@@ -28,9 +28,9 @@ class Socket(event.EventEmitter):
 
     def __init__(self, loop=None, socket=None, address=None, dns_resolver = None, max_buffer_size = None):
         super(Socket, self).__init__()
-        self._loop =loop or instance()
+        self._loop = loop or instance()
         self._socket = socket
-        self._fileno = socket.fileno() if socket else 0
+        self._fileno = 0
         self._socket_family = 2
         self._address = address
         self._dns_resolver = dns_resolver or DNSResolver.default()
@@ -50,11 +50,12 @@ class Socket(event.EventEmitter):
 
         if self._socket:
             self._state = STATE_STREAMING
-            self._socket.setblocking(False)
             try:
+                self._fileno = self._socket.fileno()
+                self._socket.setblocking(False)
                 self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
             except Exception as e:
-                self._error(e)
+                self._loop.add_async(self._error, e)
 
     @property
     def address(self):
