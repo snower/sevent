@@ -167,8 +167,8 @@ class Socket(EventEmitter):
 
     def _error(self, error):
         self._loop.add_async(self.emit_error, self, error)
+        self._loop.add_async(self.close)
         logging.error("socket error: %s", error)
-        self.close()
 
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):

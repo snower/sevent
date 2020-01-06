@@ -203,7 +203,7 @@ class Socket(event.EventEmitter):
 
     def _error(self, error):
         self._loop.add_async(self.emit_error, self, error)
-        self.close()
+        self._loop.add_async(self.close)
         logging.error("socket error:%s",error)
 
     def _connect_cb(self):
