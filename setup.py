@@ -22,13 +22,15 @@ else:
 
 setup(
     name = 'sevent',
-    version = '0.0.9',
+    version = '0.1.0',
     packages = ['sevent', 'sevent.impl'],
     ext_modules = ext_modules,
     package_data = {
         '': ['README.md'],
     },
-    install_requires = [],
+    install_requires = [
+        'dnslib>=0.9.7',
+    ],
     author = 'snower',
     author_email = 'sujian199@gmail.com',
     url = 'https://github.com/snower/sevent',
