@@ -109,8 +109,6 @@ class IOLoop(object):
         raise NotImplementedError()
 
     def add_fd(self, fd, mode, callback):
-        if not is_int(fd):
-            fd = fd.fileno()
         handlers = self._fd_handlers[fd]
         new_handlers = []
         if not handlers:
@@ -129,9 +127,6 @@ class IOLoop(object):
         return True
 
     def update_fd(self, fd, mode, callback):
-        if not is_int(fd):
-            fd = fd.fileno()
-
         handlers = self._fd_handlers[fd]
         if not handlers:
             return False
@@ -149,9 +144,6 @@ class IOLoop(object):
         return True
 
     def remove_fd(self, fd, callback):
-        if not is_int(fd):
-            fd = fd.fileno()
-
         handlers = self._fd_handlers[fd]
         if not handlers:
             return False
@@ -171,8 +163,6 @@ class IOLoop(object):
         return True
 
     def clear_fd(self, fd):
-        if not is_int(fd):
-            fd = fd.fileno()
         if fd in self._fd_handlers:
             if self._fd_handlers[fd]:
                 del self._fd_handlers[fd]

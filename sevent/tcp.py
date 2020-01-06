@@ -53,7 +53,7 @@ class Socket(event.EventEmitter):
             try:
                 self._fileno = self._socket.fileno()
                 self._socket.setblocking(False)
-                self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
             except Exception as e:
                 self._loop.add_async(self._error, e)
 
@@ -162,20 +162,20 @@ class Socket(event.EventEmitter):
 
         if self._state == STATE_CONNECTING and self._connect_handler:
             try:
-                self._loop.remove_fd(self._socket, self._connect_cb)
+                self._loop.remove_fd(self._fileno, self._connect_cb)
             except Exception as e:
                 logging.error("socket close remove_fd error:%s", e)
             self._connect_handler = False
         elif self._state in (STATE_STREAMING, STATE_CLOSING):
             if self._read_handler:
                 try:
-                    self._loop.remove_fd(self._socket, self._read_cb)
+                    self._loop.remove_fd(self._fileno, self._read_cb)
                 except Exception as e:
                     logging.error("socket close remove_fd error:%s", e)
                 self._read_handler = False
             if self._write_handler:
                 try:
-                    self._loop.remove_fd(self._socket, self._write_cb)
+                    self._loop.remove_fd(self._fileno, self._write_cb)
                 except Exception as e:
                     logging.error("socket close remove_fd error:%s", e)
                 self._write_handler = False
@@ -184,7 +184,7 @@ class Socket(event.EventEmitter):
         def on_close():
             if self._socket:
                 try:
-                    self._loop.clear_fd(self._socket)
+                    self._loop.clear_fd(self._fileno)
                 except Exception as e:
                     logging.error("server close clear_fd error: %s", e)
                 try:
@@ -210,10 +210,9 @@ class Socket(event.EventEmitter):
         if self._state != STATE_CONNECTING:
             return
         try:
-            self._loop.remove_fd(self._socket, self._connect_cb)
+            self._loop.remove_fd(self._fileno, self._connect_cb)
         except Exception as e:
-            self._error(e)
-            return
+            return self._error(e)
         self._connect_handler = False
 
         if self._connect_timeout_handler:
@@ -222,10 +221,9 @@ class Socket(event.EventEmitter):
 
         self._state = STATE_STREAMING
         try:
-            self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+            self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
         except Exception as e:
-            self._error(e)
-            return
+            return self._error(e)
 
         self._rbuffers.on("drain", lambda _: self.drain())
         self._rbuffers.on("regain", lambda _: self.regain())
@@ -233,9 +231,9 @@ class Socket(event.EventEmitter):
 
         if self._wbuffers and not self._write_handler:
             try:
-                self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+                self._write_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._write_cb)
             except Exception as e:
-                self._error(e)
+                return self._error(e)
 
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:
@@ -253,54 +251,46 @@ class Socket(event.EventEmitter):
                 return
 
             if not ip:
-                return self._error(Exception('can not resolve hostname %s' % str(address)))
+                return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
 
             try:
                 addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
-                # support both IPv4 and IPv6 addresses
-                if addrinfo:
-                    addr = addrinfo[0]
-                    self._socket = socket.socket(addr[0], addr[1], addr[2])
-                    self._fileno = self._socket.fileno()
-                    self._socket_family = addr[0]
-                    self._socket.setblocking(False)
-                    self._address = addr[4]
-                    self._is_resolve = True
+                if not addrinfo:
+                    return  self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
 
-                    if self._is_enable_fast_open:
-                        try:
-                            self._socket.setsockopt(socket.SOL_TCP, 23, 5)
-                        except Exception as e:
-                            logging.warning('fast open error: %s', e)
-                            self._is_enable_fast_open = False
+                addr = addrinfo[0]
+                self._socket = socket.socket(addr[0], addr[1], addr[2])
+                self._fileno = self._socket.fileno()
+                self._socket_family = addr[0]
+                self._socket.setblocking(False)
+                self._address = addr[4]
+                self._is_resolve = True
 
-                    if self._is_enable_nodelay:
-                        try:
-                            self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                        except Exception as e:
-                            logging.warning('nodela error: %s', e)
-                            self._is_enable_nodelay = False
+                if self._is_enable_fast_open:
+                    try:
+                        self._socket.setsockopt(socket.SOL_TCP, 23, 5)
+                    except Exception as e:
+                        logging.warning('fast open error: %s', e)
+                        self._is_enable_fast_open = False
 
-                    if self._is_enable_fast_open:
+                if self._is_enable_nodelay:
+                    try:
+                        self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    except Exception as e:
+                        logging.warning('nodela error: %s', e)
+                        self._is_enable_nodelay = False
 
-                        if self._wbuffers and not self._connect_handler:
-                            self._loop.add_async(self._connect_and_write)
-                    else:
-                        self._socket.connect(self._address)
+                if self._is_enable_fast_open:
+                    if self._wbuffers and not self._connect_handler:
+                        self._loop.add_async(self._connect_and_write)
                 else:
-                    self._error(Exception('can not resolve hostname %s' % str(address)))
-                    return
+                    self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
+                    self._socket.connect(self._address)
             except socket.error as e:
                 if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
-                    self._error(Exception("connect error %s %s" % (str(address), e)))
-                    return
-
-            if not self._is_enable_fast_open:
-                try:
-                    self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
-                except Exception as e:
-                    self._error(e)
-                    return
+                    return self._loop.add_async(self._error, Exception("connect error %s %s" % (str(address), e)))
+            except Exception as e:
+                return self._loop.add_async(self._error, e)
 
         self._dns_resolver.resolve(address[0], do_connect)
         self._connect_timeout_handler = self._loop.add_timeout(timeout, on_timeout_cb)
@@ -310,17 +300,16 @@ class Socket(event.EventEmitter):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
             if self._read_handler:
                 try:
-                    self._loop.remove_fd(self._socket, self._read_cb)
+                    self._loop.remove_fd(self._fileno, self._read_cb)
                 except Exception as e:
-                    self._error(e)
-                    return
+                    return self._error(e)
                 self._read_handler = False
 
     def regain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
             if not self._read_handler:
                 try:
-                    self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                    self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
                 except Exception as e:
                     self._error(e)
 
@@ -395,10 +384,9 @@ class Socket(event.EventEmitter):
                         self._loop.add_async(self.emit_drain, self)
                 if self._write_handler:
                     try:
-                        self._loop.remove_fd(self._socket, self._write_cb)
+                        self._loop.remove_fd(self._fileno, self._write_cb)
                     except Exception as e:
-                        self._error(e)
-                        return
+                        return self._error(e)
                     self._write_handler = False
                 if self._state == STATE_CLOSING:
                     self.close()
@@ -409,10 +397,9 @@ class Socket(event.EventEmitter):
                 self._loop.add_async(self.emit_drain, self)
             if self._write_handler:
                 try:
-                    self._loop.remove_fd(self._socket, self._write_cb)
+                    self._loop.remove_fd(self._fileno, self._write_cb)
                 except Exception as e:
-                    self._error(e)
-                    return
+                    return self._error(e)
                 self._write_handler = False
             if self._state == STATE_CLOSING:
                 self.close()
@@ -431,11 +418,11 @@ class Socket(event.EventEmitter):
 
             try:
                 self._wbuffers.read(self._socket.sendto(self._wbuffers.join(), MSG_FASTOPEN, self.address))
-                self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
             except socket.error as e:
                 if e.args[0] == errno.EINPROGRESS:
                     try:
-                        self._connect_handler = self._loop.add_fd(self._socket, MODE_OUT, self._connect_cb)
+                        self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
                     except Exception as e:
                         self._error(e)
                     return False
@@ -540,7 +527,7 @@ class Socket(event.EventEmitter):
                     self._loop.add_async(self.emit_drain, self)
                 return True
             try:
-                self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+                self._write_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._write_cb)
             except Exception as e:
                 self._error(e)
         return False
@@ -555,6 +542,7 @@ class Server(event.EventEmitter):
         super(Server, self).__init__()
         self._loop = loop or instance()
         self._dns_resolver = dns_resolver or DNSResolver.default()
+        self._fileno = 0
         self._socket = None
         self._state = STATE_INITIALIZED
         self._accept_handler = False
@@ -602,12 +590,16 @@ class Server(event.EventEmitter):
 
         def do_listen(hostname, ip):
             if not ip:
-                return self._error(Exception('can not resolve hostname %s' % str(address)))
+                return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
 
-            addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
-            if addrinfo:
+            try:
+                addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
+                if not addrinfo:
+                    return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
+
                 addr = addrinfo[0]
                 self._socket = socket.socket(addr[0], addr[1], addr[2])
+                self._fileno = self._socket.fileno()
                 self._socket.setblocking(False)
                 self._is_resolve = True
 
@@ -626,14 +618,10 @@ class Server(event.EventEmitter):
                         self._is_enable_fast_open = False
 
                 self._socket.bind(addr[4])
-                try:
-                    self._accept_handler = self._loop.add_fd(self._socket, MODE_IN, self._accept_cb)
-                except Exception as e:
-                    self._error(e)
-                    return
+                self._accept_handler = self._loop.add_fd(self._fileno, MODE_IN, self._accept_cb)
                 self._socket.listen(backlog)
-            else:
-                self._error(Exception('can not resolve hostname %s' % str(address)))
+            except Exception as e:
+                self._loop.add_async(self._error, e)
 
         self._dns_resolver.resolve(address[0], do_listen)
         self._state = STATE_LISTENING
@@ -657,13 +645,13 @@ class Server(event.EventEmitter):
         if self._state in (STATE_INITIALIZED, STATE_LISTENING):
             if self._accept_handler:
                 try:
-                    self._loop.remove_fd(self._socket, self._accept_cb)
+                    self._loop.remove_fd(self._fileno, self._accept_cb)
                 except Exception as e:
                     logging.error("server close remove_fd error: %s", e)
                 self._accept_handler = False
             if self._socket is not None:
                 try:
-                    self._loop.clear_fd(self._socket)
+                    self._loop.clear_fd(self._fileno)
                 except Exception as e:
                     logging.error("server close clear_fd error: %s", e)
                 try:

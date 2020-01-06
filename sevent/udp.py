@@ -47,30 +47,27 @@ class Socket(EventEmitter):
     def _connect(self, address, callback):
         def resolve_callback(hostname, ip):
             if not ip:
-                return self._error(Exception('can not resolve hostname %s' % str(address)))
+                return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
 
             try:
                 addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_UDP)
-                # support both IPv4 and IPv6 addresses
-                if addrinfo:
-                    addr = addrinfo[0]
-                    self._socket = socket.socket(addr[0], addr[1], addr[2])
-                    self._fileno = self._socket.fileno()
-                    self._socket_family = addr[0]
-                    self._socket.setblocking(False)
-                    self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    try:
-                        self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
-                    except Exception as e:
-                        self._error(e)
-                        return
-                    self._write_handler = None
-                    callback((ip, address[1]))
-                else:
-                    return self._error(Exception('can not resolve hostname %s' % str(address)))
+                if not addrinfo:
+                    return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
+
+                addr = addrinfo[0]
+                self._socket = socket.socket(addr[0], addr[1], addr[2])
+                self._fileno = self._socket.fileno()
+                self._socket_family = addr[0]
+                self._socket.setblocking(False)
+                self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
+                self._write_handler = None
+                callback((ip, address[1]))
             except socket.error as e:
                 if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
-                    return self._error(Exception("connect error %s %s" % (str(address), e)))
+                    return self._loop.add_async(self._error, Exception("connect error %s %s" % (str(address), e)))
+            except Exception as e:
+                return self._loop.add_async(self._error, e)
 
         self._state = STATE_CONNECTING
         if not self._dns_resolver:
@@ -135,13 +132,13 @@ class Socket(EventEmitter):
             return
         if self._read_handler:
             try:
-                self._loop.remove_fd(self._socket, self._read_cb)
+                self._loop.remove_fd(self._fileno, self._read_cb)
             except Exception as e:
                 logging.error("socket close remove_fd error:%s", e)
             self._read_handler = False
         if self._write_handler:
             try:
-                self._loop.remove_fd(self._socket, self._write_cb)
+                self._loop.remove_fd(self._fileno, self._write_cb)
             except Exception as e:
                 logging.error("socket close remove_fd error:%s", e)
             self._write_handler = False
@@ -150,7 +147,7 @@ class Socket(EventEmitter):
         def on_close():
             if self._socket:
                 try:
-                    self._loop.clear_fd(self._socket)
+                    self._loop.clear_fd(self._fileno)
                 except Exception as e:
                     logging.error("server close clear_fd error: %s", e)
                 try:
@@ -177,17 +174,16 @@ class Socket(EventEmitter):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             if self._read_handler:
                 try:
-                    self._loop.remove_fd(self._socket, self._read_cb)
+                    self._loop.remove_fd(self._fileno, self._read_cb)
                 except Exception as e:
-                    self._error(e)
-                    return
+                    return self._error(e)
                 self._read_handler = False
 
     def regain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             if not self._read_handler:
                 try:
-                    self._read_handler = self._loop.add_fd(self._socket, MODE_IN, self._read_cb)
+                    self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
                 except Exception as e:
                     self._error(e)
 
@@ -241,10 +237,9 @@ class Socket(EventEmitter):
                     self._loop.add_async(self.emit_drain, self)
                 if self._write_handler:
                     try:
-                        self._loop.remove_fd(self._socket, self._write_cb)
+                        self._loop.remove_fd(self._fileno, self._write_cb)
                     except Exception as e:
-                        self._error(e)
-                        return
+                        return self._error(e)
                     self._write_handler = False
 
                 if self._state == STATE_CLOSING:
@@ -323,7 +318,7 @@ class Socket(EventEmitter):
                         self._loop.add_async(self.emit_drain, self)
                     return True
                 try:
-                    self._write_handler = self._loop.add_fd(self._socket, MODE_OUT, self._write_cb)
+                    self._write_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._write_cb)
                 except Exception as e:
                     self._error(e)
             return False
@@ -367,8 +362,11 @@ class Server(Socket):
 
     def bind(self, address):
         def do_bind(address):
-            self._socket.bind(address)
-            self._state = STATE_BINDING
+            try:
+                self._socket.bind(address)
+                self._state = STATE_BINDING
+            except Exception as e:
+                self._loop.add_async(self._error, e)
 
         self._connect(address, do_bind)
 
