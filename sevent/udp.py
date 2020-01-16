@@ -9,6 +9,7 @@ from .event import EventEmitter
 from .loop import instance, MODE_IN, MODE_OUT
 from .dns import DNSResolver
 from .buffer import Buffer, cbuffer, RECV_BUFFER_SIZE
+from .errors import SocketClosed, ResolveError, AddressError, ConnectError
 
 STATE_INITIALIZED = 0x01
 STATE_CONNECTING = 0x02
@@ -47,12 +48,12 @@ class Socket(EventEmitter):
     def _connect(self, address, callback):
         def resolve_callback(hostname, ip):
             if not ip:
-                return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
+                return self._loop.add_async(self._error, ResolveError('can not resolve hostname %s' % str(address)))
 
             try:
                 addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_UDP)
                 if not addrinfo:
-                    return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
+                    return self._loop.add_async(self._error, AddressError('address info unknown %s' % str(address)))
 
                 addr = addrinfo[0]
                 self._socket = socket.socket(addr[0], addr[1], addr[2])
@@ -60,12 +61,14 @@ class Socket(EventEmitter):
                 self._socket_family = addr[0]
                 self._socket.setblocking(False)
                 self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self._state = STATE_STREAMING
+
                 self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
                 self._write_handler = None
-                callback((ip, address[1]))
+                self._loop.add_async(callback, (ip, address[1]))
             except socket.error as e:
                 if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
-                    return self._loop.add_async(self._error, Exception("connect error %s %s" % (str(address), e)))
+                    return self._loop.add_async(self._error, ConnectError(address, e, "connect error %s %s" % (str(address), e)))
             except Exception as e:
                 return self._loop.add_async(self._error, e)
 
@@ -301,16 +304,15 @@ class Socket(EventEmitter):
             return True
 
     def write(self, data):
+        if self._state == STATE_CLOSED:
+            raise SocketClosed()
+
         def do_write():
             if self._state not in (STATE_STREAMING, STATE_BINDING):
                 if self._state == STATE_INITIALIZED:
                     _, address = self._wbuffers[0]
                     self._connect(address, lambda address: do_write())
-                    return False
-
-                if not self._socket:
-                    return False
-                self._state = STATE_STREAMING
+                return False
 
             if not self._write_handler:
                 if self._write():
@@ -339,7 +341,7 @@ class Socket(EventEmitter):
         if address[0] not in self._address_cache:
             def resolve_callback(hostname, ip):
                 if not ip:
-                    return self._error(Exception('can not resolve hostname %s' % str(address)))
+                    return self._error(ResolveError('can not resolve hostname %s' % str(address)))
                 self._address_cache[hostname] = ip
                 self._wbuffers.write(data, (ip, address[1]))
                 return do_write()
@@ -361,6 +363,11 @@ class Server(Socket):
         super(Server, self).__init__(loop)
 
     def bind(self, address):
+        if self._state != STATE_INITIALIZED:
+            if self._state == STATE_CLOSED:
+                raise SocketClosed()
+            return
+
         def do_bind(address):
             try:
                 self._socket.bind(address)

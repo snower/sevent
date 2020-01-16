@@ -7,6 +7,7 @@ from . import event
 from .loop import instance, MODE_IN, MODE_OUT
 from .buffer import Buffer, cbuffer, RECV_BUFFER_SIZE
 from .dns import DNSResolver
+from .errors import SocketClosed, ResolveError, ConnectTimeout, AddressError, ConnectError
 
 MSG_FASTOPEN = 0x20000000
 
@@ -237,6 +238,8 @@ class Socket(event.EventEmitter):
 
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:
+            if self._state == STATE_CLOSED:
+                raise SocketClosed()
             return
 
         self._connect_timeout = timeout
@@ -244,19 +247,19 @@ class Socket(event.EventEmitter):
         def on_timeout_cb():
             if self._state == STATE_CONNECTING:
                 if not self._is_enable_fast_open:
-                    self._error(Exception("connect time out %s" % str(address)))
+                    self._error(ConnectTimeout("connect time out %s" % str(address)))
 
         def do_connect(hostname, ip):
             if self._state == STATE_CLOSED:
                 return
 
             if not ip:
-                return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
+                return self._loop.add_async(self._error, ResolveError('can not resolve hostname %s' % str(address)))
 
             try:
                 addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
                 if not addrinfo:
-                    return  self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
+                    return  self._loop.add_async(self._error, AddressError('address info unknown %s' % str(address)))
 
                 addr = addrinfo[0]
                 self._socket = socket.socket(addr[0], addr[1], addr[2])
@@ -288,7 +291,7 @@ class Socket(event.EventEmitter):
                     self._socket.connect(self._address)
             except socket.error as e:
                 if e.args[0] not in (errno.EINPROGRESS, errno.EWOULDBLOCK):
-                    return self._loop.add_async(self._error, Exception("connect error %s %s" % (str(address), e)))
+                    return self._loop.add_async(self._error, ConnectError(address, e, "connect error %s %s" % (str(address), e)))
             except Exception as e:
                 return self._loop.add_async(self._error, e)
 
@@ -409,7 +412,7 @@ class Socket(event.EventEmitter):
             def on_timeout_cb():
                 if self._state == STATE_CONNECTING:
                     if self._is_enable_fast_open:
-                        self._error(Exception("connect time out %s:%s" % (self._address[0], self._address[1])))
+                        self._error(ConnectTimeout("connect time out %s" % (str(self._address),)))
 
             if self._connect_timeout_handler:
                 self._loop.cancel_timeout(self._connect_timeout_handler)
@@ -507,7 +510,7 @@ class Socket(event.EventEmitter):
                 if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
                     return self._connect_and_write()
                 return False
-            assert self._state == STATE_STREAMING, "not connected"
+            raise SocketClosed()
 
         if data.__class__ == Buffer:
             if self._wbuffers != data:
@@ -586,16 +589,18 @@ class Server(event.EventEmitter):
 
     def listen(self, address, backlog=128):
         if self._state != STATE_INITIALIZED:
+            if self._state == STATE_CLOSED:
+                raise SocketClosed()
             return
 
         def do_listen(hostname, ip):
             if not ip:
-                return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
+                return self._loop.add_async(self._error, ResolveError('can not resolve hostname %s' % str(address)))
 
             try:
                 addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
                 if not addrinfo:
-                    return self._loop.add_async(self._error, Exception('can not resolve hostname %s' % str(address)))
+                    return self._loop.add_async(self._error, AddressError('address info unknown %s' % str(address)))
 
                 addr = addrinfo[0]
                 self._socket = socket.socket(addr[0], addr[1], addr[2])

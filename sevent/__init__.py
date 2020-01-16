@@ -9,3 +9,4 @@ from . import tcp
 from . import udp
 from .buffer import Buffer
 from .dns import DNSResolver
+from . import errors
