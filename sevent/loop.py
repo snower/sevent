@@ -2,11 +2,10 @@
 
 import select
 import time
-import heapq
+import bisect
 import logging
 import threading
 from collections import defaultdict, deque
-from .utils import is_int
 
 ''' You can only use instance(). Don't create a Loop() '''
 
@@ -64,7 +63,7 @@ class TimeoutHandler(object):
         self.canceled = False
 
     def __cmp__(self, other):
-        return (self.deadline > other.deadline) - (self.deadline < other.deadline)
+        return cmp(self.deadline, other.deadline)
 
     def __eq__(self, other):
         return self.deadline == other.deadline
@@ -179,9 +178,9 @@ class IOLoop(object):
                 while self._timeout_handlers:
                     handler = self._timeout_handlers[0]
                     if handler.canceled:
-                        heapq.heappop(self._timeout_handlers)
+                        self._timeout_handlers.pop(0)
                     elif handler.deadline <= cur_time:
-                        heapq.heappop(self._timeout_handlers)
+                        self._timeout_handlers.pop(0)
                         try:
                             handler.callback(*handler.args, **handler.kwargs)
                         except Exception as e:
@@ -222,7 +221,10 @@ class IOLoop(object):
 
     def add_timeout(self, timeout, callback, *args, **kwargs):
         handler = TimeoutHandler(callback, time.time() + timeout, args, kwargs)
-        heapq.heappush(self._timeout_handlers, handler)
+        if not self._timeout_handlers or handler.deadline >= self._timeout_handlers[-1].deadline:
+            self._timeout_handlers.append(handler)
+        else:
+            bisect.insort(self._timeout_handlers, handler)
         return handler
 
     def cancel_timeout(self, handler):
