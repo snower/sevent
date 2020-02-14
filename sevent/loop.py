@@ -5,7 +5,8 @@ import time
 import bisect
 import logging
 import threading
-from collections import defaultdict, deque
+from collections import defaultdict
+from .waker import Waker
 
 ''' You can only use instance(). Don't create a Loop() '''
 
@@ -89,11 +90,12 @@ class TimeoutHandler(object):
 
 class IOLoop(object):
     def __init__(self):
-        self._handlers = deque()
-        self._run_handlers = deque()
+        self._handlers = []
+        self._run_handlers = []
         self._timeout_handlers = []
         self._fd_handlers = defaultdict(list)
         self._stopped = False
+        self._waker = Waker()
 
     def _poll(self, timeout):
         raise NotImplementedError()
@@ -171,33 +173,40 @@ class IOLoop(object):
         return False
 
     def start(self):
+        self.add_fd(self._waker.fileno(), MODE_IN, self._waker.consume)
+
         while not self._stopped:
-            timeout = 1
+            timeout = 3600
+
             if self._timeout_handlers:
                 cur_time = time.time()
-                while self._timeout_handlers:
-                    handler = self._timeout_handlers[0]
-                    if handler.canceled:
-                        self._timeout_handlers.pop(0)
-                    elif handler.deadline <= cur_time:
-                        self._timeout_handlers.pop(0)
-                        try:
-                            handler.callback(*handler.args, **handler.kwargs)
-                        except Exception as e:
-                            logging.exception("loop callback timeout error:%s", e)
-                    else:
-                        timeout = self._timeout_handlers[0].deadline - cur_time
-                        if timeout > 1:
-                            timeout = 1
-                        break
-
-            if self._handlers:
+                if self._timeout_handlers[0].deadline <= cur_time:
+                    while self._timeout_handlers:
+                        handler = self._timeout_handlers[0]
+                        if handler.canceled:
+                            self._timeout_handlers.pop(0)
+                        elif handler.deadline <= cur_time:
+                            self._timeout_handlers.pop(0)
+                            try:
+                                handler.callback(*handler.args, **handler.kwargs)
+                            except Exception as e:
+                                logging.exception("loop callback timeout error:%s", e)
+                        elif self._handlers:
+                            timeout = 0
+                            break
+                        else:
+                            timeout = self._timeout_handlers[0].deadline - cur_time
+                            break
+                elif self._handlers:
+                    timeout = 0
+                else:
+                    timeout = self._timeout_handlers[0].deadline - cur_time
+            elif self._handlers:
                 timeout = 0
-                
+
             fds_ready = self._poll(timeout)
             for fd, mode in fds_ready:
-                handlers = self._fd_handlers[fd]
-                for hcallback, hfd, hmode in handlers:
+                for hcallback, hfd, hmode in self._fd_handlers[fd]:
                     if hmode & mode != 0:
                         try:
                             hcallback()
@@ -206,15 +215,16 @@ class IOLoop(object):
 
             # call handlers without fd
             self._handlers, self._run_handlers = self._run_handlers, self._handlers
-            while self._run_handlers:
-                callback, args, kwargs = self._run_handlers.popleft()
+            for callback, args, kwargs in self._run_handlers:
                 try:
                     callback(*args, **kwargs)
                 except Exception  as e:
                     logging.exception("loop callback error:%s", e)
+            self._run_handlers = []
 
     def stop(self):
         self._stopped = True
+        self._waker.wake()
 
     def add_async(self, callback, *args, **kwargs):
         self._handlers.append((callback, args, kwargs))
@@ -232,3 +242,6 @@ class IOLoop(object):
             handler.canceled = True
         else:
             self._timeout_handlers.remove(handler)
+        self.callback = None
+        self.args = None
+        self.kwargs = None
