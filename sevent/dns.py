@@ -169,15 +169,19 @@ class DNSResolver(EventEmitter):
                 content = f.readlines()
                 for line in content:
                     line = line.strip()
-                    if line:
-                        if line.startswith(b'nameserver'):
-                            parts = line.split()
-                            if len(parts) >= 2:
-                                server = parts[1]
-                                if self.is_ip(server):
-                                    if is_py3 and type(server) != str:
-                                        server = server.decode('utf8')
-                                    servers.append(server)
+                    if not line or line[0] == '#' or not line.startswith(b'nameserver'):
+                        continue
+
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue
+                    server = parts[1].strip()
+                    if not self.is_ip(server):
+                        continue
+
+                    if is_py3 and type(server) != str:
+                        server = server.decode('utf8')
+                    servers.append(server)
         except IOError:
             pass
         if not servers:
@@ -195,14 +199,21 @@ class DNSResolver(EventEmitter):
             with open(etc_path, 'rb') as f:
                 for line in f.readlines():
                     line = line.strip()
+                    if not line or line[0] == '#':
+                        continue
+
                     parts = line.split()
-                    if len(parts) >= 2:
-                        ip = parts[0]
-                        if self.is_ip(ip):
-                            for i in range(1, len(parts)):
-                                hostname = parts[i]
-                                if hostname:
-                                    self._hosts[hostname] = ip
+                    if len(parts) < 2:
+                        continue
+                    ip = parts[0].strip()
+                    if not self.is_ip(ip):
+                        continue
+
+                    for i in range(1, len(parts)):
+                        hostname = parts[i].strip()
+                        if not hostname:
+                            continue
+                        self._hosts[hostname] = ip
         except IOError:
             self._hosts[b'localhost'] = '127.0.0.1'
 
