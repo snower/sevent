@@ -222,7 +222,7 @@ class Socket(EventEmitter):
     else:
         def _read(self):
             try:
-                r = self._rbuffers.socket_recvfrom(self._fileno, self._socket_family)
+                r = self._rbuffers.socket_recvfrom(self._fileno, self._socket_family, self._rbuffers._drain_size - len(self._rbuffers))
             except Exception as e:
                 self._error(e)
                 if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:

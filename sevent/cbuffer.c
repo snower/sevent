@@ -154,7 +154,6 @@ int join_impl(register BufferObject *objbuf)
         queue->next = NULL;
     }
 
-    buffer->ob_sval[Py_SIZE(objbuf)] = '\0';
     queue->buffer = buffer;
     queue->odata = odata;
     objbuf->buffer_head = queue;
@@ -538,7 +537,6 @@ Buffer_read(register BufferObject *objbuf, PyObject *args)
         }
     }
 
-    buffer->ob_sval[read_size] = '\0';
     return odata != NULL ? pdata : (PyObject*)buffer;
 }
 
@@ -574,7 +572,6 @@ Buffer_next(register BufferObject *objbuf, PyObject *args) {
             objbuf->buffer_tail = NULL;
         }
 
-        buffer->ob_sval[buf_size] = '\0';
         return odata != NULL ? pdata : (PyObject*)buffer;
     }
 
@@ -679,7 +676,6 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
             queue->next = NULL;
             queue->odata = NULL;
         }
-        buf->ob_sval[result] = '\0';
         queue->buffer = buf;
 
         if(objbuf->buffer_tail == NULL) {
@@ -824,7 +820,6 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
             queue->next = NULL;
         }
         queue->odata = addr_data;
-        buf->ob_sval[result] = '\0';
         queue->buffer = buf;
 
         if(objbuf->buffer_tail == NULL) {
@@ -1170,7 +1165,6 @@ cbuffer_socket_recv(PyObject *self, PyObject *args) {
     }
 
     Py_SIZE(buf) = result;
-    buf->ob_sval[result] = '\0';
     return (PyObject *)buf;
 }
 
