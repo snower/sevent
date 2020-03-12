@@ -630,6 +630,29 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
     Py_ssize_t recv_len = 0;
 
     while (1) {
+        if(objbuf->buffer_tail != NULL && objbuf->buffer_tail->flag == 0x01 && socket_recv_size - Py_SIZE(objbuf->buffer_tail->buffer) >= 256) {
+            buf = objbuf->buffer_tail->buffer;
+            result = recv(sock_fd, buf->ob_sval + Py_SIZE(buf), socket_recv_size - Py_SIZE(buf), 0);
+            if(result < 0) {
+                if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
+                    return PyInt_FromLong(recv_len);
+                }
+                return PyErr_SetFromErrno(PyExc_OSError);
+            }
+
+            if(result == 0) {
+                return PyInt_FromLong(recv_len);
+            }
+
+            Py_SIZE(buf) += result;
+            Py_SIZE(objbuf) += result;
+            recv_len += result;
+            if(recv_len > max_len) {
+                return PyInt_FromLong(recv_len);
+            }
+            continue;
+        }
+
         if(bytes_fast_buffer_index > 0) {
             buf = bytes_fast_buffer[--bytes_fast_buffer_index];
         } else {
