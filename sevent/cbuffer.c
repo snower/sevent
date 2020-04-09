@@ -693,6 +693,11 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
         } else {
             queue = (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue));
             if(queue == NULL) {
+                if(bytes_fast_buffer_index < BYTES_FAST_BUFFER_COUNT) {
+                    bytes_fast_buffer[bytes_fast_buffer_index++]=buf;
+                } else {
+                    Py_DECREF(buf);
+                }
                 return PyErr_NoMemory();
             }
             queue->flag = 0x01;
@@ -837,6 +842,12 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
         } else {
             queue = (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue));
             if(queue == NULL) {
+                if(bytes_fast_buffer_index < BYTES_FAST_BUFFER_COUNT) {
+                    bytes_fast_buffer[bytes_fast_buffer_index++]=buf;
+                } else {
+                    Py_DECREF(buf);
+                }
+                Py_DECREF(addr_data);
                 return PyErr_NoMemory();
             }
             queue->flag = 0x01;
