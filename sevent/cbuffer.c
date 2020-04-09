@@ -42,6 +42,8 @@ static PyBytesObject* bytes_fast_buffer[BYTES_FAST_BUFFER_COUNT];
 static short bytes_fast_buffer_index = 0;
 
 static int socket_recv_size = 8192 - sizeof(PyBytesObject);
+static int socket_recv_count = 256;
+static int socket_send_count = 256;
 
 #define BufferQueue_malloc() buffer_queue_fast_buffer_index > 0 ? buffer_queue_fast_buffer[--buffer_queue_fast_buffer_index] : (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue))
 #define BufferQueue_free(buffer_queue) if(buffer_queue_fast_buffer_index < BUFFER_QUEUE_FAST_BUFFER_COUNT) { \
@@ -621,6 +623,7 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
 {
     int sock_fd;
     int max_len = 0x7fffffff;
+    int max_count = socket_recv_count;
     if (!PyArg_ParseTuple(args, "i|i", &sock_fd, &max_len)) {
         return NULL;
     }
@@ -629,7 +632,7 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
     Py_ssize_t result = 0;
     Py_ssize_t recv_len = 0;
 
-    while (1) {
+    while (max_count--) {
         if(objbuf->buffer_tail != NULL && objbuf->buffer_tail->flag == 0x01 && socket_recv_size - Py_SIZE(objbuf->buffer_tail->buffer) >= 256) {
             buf = objbuf->buffer_tail->buffer;
             result = recv(sock_fd, buf->ob_sval + Py_SIZE(buf), socket_recv_size - Py_SIZE(buf), 0);
@@ -725,6 +728,7 @@ static PyObject *
 Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
 {
     int sock_fd;
+    int max_count = socket_send_count;
     if (!PyArg_ParseTuple(args, "i", &sock_fd)) {
         return NULL;
     }
@@ -733,7 +737,7 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
     Py_ssize_t send_len = 0;
     BufferQueue* last_queue;
 
-    while (objbuf->buffer_head != NULL) {
+    while (max_count-- && objbuf->buffer_head != NULL) {
         result = send(sock_fd, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset, 0);
         if(result < 0) {
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
@@ -769,6 +773,7 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
     int sock_fd;
     int sa_family = AF_INET;
     int max_len = 0x7fffffff;
+    int max_count = socket_recv_count;
     if (!PyArg_ParseTuple(args, "i|ii", &sock_fd, &sa_family, &max_len)) {
         return NULL;
     }
@@ -784,7 +789,7 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
     Py_ssize_t result = 0;
     Py_ssize_t recv_len = 0;
 
-    while (1) {
+    while (max_count--) {
         if(bytes_fast_buffer_index > 0) {
             buf = bytes_fast_buffer[--bytes_fast_buffer_index];
         } else {
@@ -875,6 +880,7 @@ static PyObject *
 Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
 {
     int sock_fd;
+    int max_count = socket_send_count;
     int sa_family = AF_INET;
     if (!PyArg_ParseTuple(args, "i|i", &sock_fd, &sa_family)) {
         return NULL;
@@ -897,7 +903,7 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
     PyObject* flowinfo;
     PyObject* scope_id;
 
-    while (objbuf->buffer_head != NULL) {
+    while (max_count-- && objbuf->buffer_head != NULL) {
         if (objbuf->buffer_head->odata == NULL || !PyTuple_CheckExact(objbuf->buffer_head->odata)) {
             PyErr_SetString(PyExc_OSError, "buffer data must be sock address");
             return NULL;
@@ -1244,12 +1250,48 @@ cbuffer_socket_get_recv_size(PyObject *self, PyObject *args) {
     return PyInt_FromLong(socket_recv_size);
 }
 
+static PyObject *
+cbuffer_socket_set_recv_count(PyObject *self, PyObject *args) {
+    int recv_count;
+    if (!PyArg_ParseTuple(args, "i", &recv_count)) {
+        return NULL;
+    }
+
+    socket_recv_count = recv_count;
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+cbuffer_socket_get_recv_count(PyObject *self, PyObject *args) {
+    return PyInt_FromLong(socket_recv_count);
+}
+
+static PyObject *
+cbuffer_socket_set_send_count(PyObject *self, PyObject *args) {
+    int send_count;
+    if (!PyArg_ParseTuple(args, "i", &send_count)) {
+        return NULL;
+    }
+
+    socket_send_count = send_count;
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+cbuffer_socket_get_send_count(PyObject *self, PyObject *args) {
+    return PyInt_FromLong(socket_send_count);
+}
+
 static PyMethodDef module_methods[] =
 {
         {"socket_send", (PyCFunction)cbuffer_socket_send, METH_VARARGS, "socket_send"},
         {"socket_recv", (PyCFunction)cbuffer_socket_recv, METH_VARARGS, "socket_recv"},
         {"socket_set_recv_size", (PyCFunction)cbuffer_socket_set_recv_size, METH_VARARGS, "socket_set_recv_size"},
         {"socket_get_recv_size", (PyCFunction)cbuffer_socket_get_recv_size, METH_VARARGS, "socket_get_recv_size"},
+        {"socket_set_recv_count", (PyCFunction)cbuffer_socket_set_recv_count, METH_VARARGS, "socket_set_recv_count"},
+        {"socket_get_recv_count", (PyCFunction)cbuffer_socket_get_recv_count, METH_VARARGS, "socket_get_recv_count"},
+        {"socket_set_send_count", (PyCFunction)cbuffer_socket_set_send_count, METH_VARARGS, "socket_set_send_count"},
+        {"socket_get_send_count", (PyCFunction)cbuffer_socket_get_send_count, METH_VARARGS, "socket_get_send_count"},
         {NULL, NULL, 0, NULL}
 };
 
