@@ -150,6 +150,8 @@ int join_impl(register BufferObject *objbuf)
             if(odata != NULL) {
                 Py_DECREF(odata);
             }
+            objbuf->buffer_tail = NULL;
+            Py_SIZE(objbuf) = 0;
             return -1;
         }
         queue->flag = 0;
@@ -623,11 +625,11 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
 {
     int sock_fd;
     int max_len = 0x7fffffff;
-    int max_count = socket_recv_count;
     if (!PyArg_ParseTuple(args, "i|i", &sock_fd, &max_len)) {
         return NULL;
     }
 
+    int max_count = socket_recv_count;
     PyBytesObject* buf;
     Py_ssize_t result = 0;
     Py_ssize_t recv_len = 0;
@@ -722,17 +724,18 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
             return PyInt_FromLong(recv_len);
         }
     }
+    return PyInt_FromLong(recv_len);
 }
 
 static PyObject *
 Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
 {
     int sock_fd;
-    int max_count = socket_send_count;
     if (!PyArg_ParseTuple(args, "i", &sock_fd)) {
         return NULL;
     }
 
+    int max_count = socket_send_count;
     Py_ssize_t result = 0;
     Py_ssize_t send_len = 0;
     BufferQueue* last_queue;
@@ -773,11 +776,11 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
     int sock_fd;
     int sa_family = AF_INET;
     int max_len = 0x7fffffff;
-    int max_count = socket_recv_count;
     if (!PyArg_ParseTuple(args, "i|ii", &sock_fd, &sa_family, &max_len)) {
         return NULL;
     }
 
+    int max_count = socket_recv_count;
     struct sockaddr_in6 addr;
     socklen_t addr_len = sizeof(struct sockaddr_in);
     if (sa_family == AF_INET6) {
@@ -874,18 +877,19 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
             return PyInt_FromLong(recv_len);
         }
     }
+    return PyInt_FromLong(recv_len);
 }
 
 static PyObject *
 Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
 {
     int sock_fd;
-    int max_count = socket_send_count;
     int sa_family = AF_INET;
     if (!PyArg_ParseTuple(args, "i|i", &sock_fd, &sa_family)) {
         return NULL;
     }
 
+    int max_count = socket_send_count;
     struct sockaddr_in6 addr;
     socklen_t addr_len = sizeof(struct sockaddr_in);
     if (sa_family == AF_INET6) {
