@@ -21,12 +21,30 @@ except:
     MAX_BUFFER_SIZE = 4 * 1024 * 1024
 
 try:
+    RECV_COUNT = int(os.environ.get("SEVENT_RECV_COUNT", 0))
+except:
+    RECV_COUNT = 0
+    
+try:
+    SEND_COUNT = int(os.environ.get("SEVENT_SEND_COUNT", 0))
+except:
+    SEND_COUNT = 0
+    
+try:
     if not os.environ.get("SEVENT_NOUSE_CBUFFER", False):
         from . import cbuffer
         BaseBuffer = cbuffer.Buffer
         if RECV_BUFFER_SIZE:
             try:
                 cbuffer.socket_set_recv_size(RECV_BUFFER_SIZE)
+            except: pass
+        if RECV_COUNT:
+            try:
+                cbuffer.socket_set_recv_count(RECV_COUNT)
+            except: pass
+        if SEND_COUNT:
+            try:
+                cbuffer.socket_set_send_count(SEND_COUNT)
             except: pass
     else:
         cbuffer = None

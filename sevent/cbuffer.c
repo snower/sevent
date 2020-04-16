@@ -42,8 +42,8 @@ static PyBytesObject* bytes_fast_buffer[BYTES_FAST_BUFFER_COUNT];
 static short bytes_fast_buffer_index = 0;
 
 static int socket_recv_size = 8192 - sizeof(PyBytesObject);
-static int socket_recv_count = 256;
-static int socket_send_count = 256;
+static int socket_recv_count = 64;
+static int socket_send_count = 64;
 
 #define BufferQueue_malloc() buffer_queue_fast_buffer_index > 0 ? buffer_queue_fast_buffer[--buffer_queue_fast_buffer_index] : (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue))
 #define BufferQueue_free(buffer_queue) if(buffer_queue_fast_buffer_index < BUFFER_QUEUE_FAST_BUFFER_COUNT) { \
@@ -596,6 +596,50 @@ Buffer_next(register BufferObject *objbuf, PyObject *args) {
 }
 
 static PyObject *
+Buffer_extend(register BufferObject *objbuf, PyObject *args) {
+    PyObject* data;
+    if (!PyArg_ParseTuple(args, "O", &data)) {
+        return NULL;
+    }
+
+    if (Py_TYPE(objbuf) != Py_TYPE(data)) {
+        PyErr_SetString(PyExc_TypeError, "The data must be a buffer");
+        return NULL;
+    }
+
+    BufferObject *databuf = (BufferObject*)data;
+    if (Py_SIZE(databuf) == 0) {
+        Py_RETURN_NONE;
+    } 
+
+    if(databuf->buffer_offset > 0) {
+        Py_ssize_t buf_size = Py_SIZE(databuf->buffer_head->buffer) - databuf->buffer_offset;
+        PyBytesObject* buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
+        if (buffer == NULL)
+            return PyErr_NoMemory();
+
+        memcpy(buffer->ob_sval, databuf->buffer_head->buffer->ob_sval + databuf->buffer_offset, buf_size);
+        databuf->buffer_offset = 0;
+        PyBytesObject_free(databuf->buffer_head->buffer, databuf->buffer_head);
+        databuf->buffer_head->buffer = buffer;
+        databuf->buffer_head->flag = 0;
+    }
+
+    if(objbuf->buffer_tail == NULL) {
+        objbuf->buffer_head = databuf->buffer_head;
+        objbuf->buffer_tail = databuf->buffer_tail;
+    } else {
+        objbuf->buffer_tail->next = databuf->buffer_head;
+        objbuf->buffer_tail = databuf->buffer_tail;
+    }
+    databuf->buffer_head = NULL;
+    databuf->buffer_tail = NULL;
+    Py_SIZE(objbuf) += Py_SIZE(databuf);
+    Py_SIZE(databuf) = 0;
+    Py_RETURN_NONE;
+}
+
+static PyObject *
 Buffer_join(register BufferObject *objbuf, PyObject *args) {
     if(Py_SIZE(objbuf) == 0) {
         return PyBytes_FromStringAndSize(0, 0);
@@ -1092,6 +1136,7 @@ static PyMethodDef Buffer_methods[] = {
         {"read", (PyCFunction)Buffer_read, METH_VARARGS, "buffer read"},
         {"join", (PyCFunction)Buffer_join, METH_VARARGS, "buffer join"},
         {"next", (PyCFunction)Buffer_next, METH_VARARGS, "buffer next"},
+        {"extend", (PyCFunction)Buffer_extend, METH_VARARGS, "buffer extend"},
         {"socket_send", (PyCFunction)Buffer_socket_send, METH_VARARGS, "buffer socket_send"},
         {"socket_recv", (PyCFunction)Buffer_socket_recv, METH_VARARGS, "buffer socket_recv"},
         {"socket_sendto", (PyCFunction)Buffer_socket_sendto, METH_VARARGS, "buffer socket_sendto"},
