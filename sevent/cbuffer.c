@@ -608,27 +608,28 @@ Buffer_extend(register BufferObject *objbuf, PyObject *args) {
     }
 
     BufferObject *databuf = (BufferObject*)data;
-    if (Py_SIZE(databuf) == 0) {
+    if (Py_SIZE(databuf) == 0 || objbuf == databuf) {
         Py_RETURN_NONE;
-    } 
-
-    if(databuf->buffer_offset > 0) {
-        Py_ssize_t buf_size = Py_SIZE(databuf->buffer_head->buffer) - databuf->buffer_offset;
-        PyBytesObject* buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
-        if (buffer == NULL)
-            return PyErr_NoMemory();
-
-        memcpy(buffer->ob_sval, databuf->buffer_head->buffer->ob_sval + databuf->buffer_offset, buf_size);
-        databuf->buffer_offset = 0;
-        PyBytesObject_free(databuf->buffer_head->buffer, databuf->buffer_head);
-        databuf->buffer_head->buffer = buffer;
-        databuf->buffer_head->flag = 0;
     }
 
-    if(objbuf->buffer_tail == NULL) {
+    if(objbuf->buffer_head == NULL) {
         objbuf->buffer_head = databuf->buffer_head;
         objbuf->buffer_tail = databuf->buffer_tail;
+        objbuf->buffer_offset = databuf->buffer_offset;
+        databuf->buffer_offset = 0;
     } else {
+        if(databuf->buffer_offset > 0) {
+            Py_ssize_t buf_size = Py_SIZE(databuf->buffer_head->buffer) - databuf->buffer_offset;
+            PyBytesObject* buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
+            if (buffer == NULL)
+                return PyErr_NoMemory();
+
+            memcpy(buffer->ob_sval, databuf->buffer_head->buffer->ob_sval + databuf->buffer_offset, buf_size);
+            databuf->buffer_offset = 0;
+            PyBytesObject_free(databuf->buffer_head->buffer, databuf->buffer_head);
+            databuf->buffer_head->buffer = buffer;
+            databuf->buffer_head->flag = 0;
+        }
         objbuf->buffer_tail->next = databuf->buffer_head;
         objbuf->buffer_tail = databuf->buffer_tail;
     }

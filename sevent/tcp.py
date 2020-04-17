@@ -41,8 +41,8 @@ class Socket(event.EventEmitter):
         self._read_handler = False
         self._write_handler = False
         self._max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE
-        self._rbuffers = Buffer(max_buffer_size= self._max_buffer_size)
-        self._wbuffers = None
+        self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
+        self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._state = STATE_INITIALIZED
         self._is_enable_fast_open = False
         self._is_enable_nodelay = False
@@ -496,15 +496,8 @@ class Socket(event.EventEmitter):
         if self._state != STATE_STREAMING:
             if self._state == STATE_CONNECTING:
                 if data.__class__ == Buffer:
-                    if self._wbuffers != data:
-                        if not self._wbuffers:
-                            self._wbuffers = data
-                        else:
-                            while data:
-                                self._wbuffers.write(data.next())
+                    self._wbuffers.extend(data)
                 else:
-                    if self._wbuffers is None:
-                        self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
                     self._wbuffers.write(data)
 
                 if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
@@ -513,15 +506,8 @@ class Socket(event.EventEmitter):
             raise SocketClosed()
 
         if data.__class__ == Buffer:
-            if self._wbuffers != data:
-                if not self._wbuffers:
-                    self._wbuffers = data
-                else:
-                    while data:
-                        self._wbuffers.write(data.next())
+            self._wbuffers.extend(data)
         else:
-            if self._wbuffers is None:
-                self._wbuffers = Buffer(max_buffer_size = self._max_buffer_size)
             self._wbuffers.write(data)
 
         if not self._write_handler:

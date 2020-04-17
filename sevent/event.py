@@ -3,8 +3,10 @@
 import logging
 from collections import defaultdict
 
+
 def null_emit_callback(*args, **kwargs):
     return None
+
 
 class EventEmitter(object):
     def __init__(self):

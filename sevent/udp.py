@@ -40,8 +40,8 @@ class Socket(EventEmitter):
         self._has_drain_event = False
 
         self._max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE
-        self._rbuffers = Buffer(max_buffer_size = self._max_buffer_size)
-        self._wbuffers = None
+        self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
+        self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._address_cache = {}
         self._state = STATE_INITIALIZED
 
@@ -326,16 +326,8 @@ class Socket(EventEmitter):
             return False
 
         if data.__class__ == Buffer:
-            if self._wbuffers != data:
-                if not self._wbuffers:
-                    self._wbuffers = data
-                else:
-                    while data:
-                        self._wbuffers.write(*data.next())
+            self._wbuffers.extend(data)
             return do_write()
-        else:
-            if self._wbuffers is None:
-                self._wbuffers = Buffer(max_buffer_size = self._max_buffer_size)
 
         data, address = data
         if address[0] not in self._address_cache:

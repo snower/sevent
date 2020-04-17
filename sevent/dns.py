@@ -22,7 +22,7 @@ STATUS_OPENED = 0
 STATUS_CLOSED = 1
 
 class DNSCache(object):
-    def __init__(self, loop, default_ttl = 60):
+    def __init__(self, loop, default_ttl=60):
         self._loop = loop or instance()
         self.default_ttl = default_ttl
         self._cache = defaultdict(list)

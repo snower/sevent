@@ -146,6 +146,17 @@ if cbuffer is None:
                 self._buffer_index, self._buffer_len, self._buffer, self._buffer_odata = 0, 0, b'', None
             return (data, buffer_odata) if buffer_odata else data
 
+        def extend(self, o):
+            if not isinstance(o, BaseBuffer):
+                raise TypeError('not Buffer')
+
+            while o:
+                data = o.next()
+                if isinstance(data, tuple):
+                    self.write(*data)
+                else:
+                    self.write(data)
+
         def __len__(self):
             return self._len
 
