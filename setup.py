@@ -22,7 +22,7 @@ else:
 
 setup(
     name = 'sevent',
-    version = '0.1.2',
+    version = '0.1.3',
     packages = ['sevent', 'sevent.impl'],
     ext_modules = ext_modules,
     package_data = {
