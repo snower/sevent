@@ -66,6 +66,10 @@ class Socket(event.EventEmitter):
     def socket(self):
         return self._socket
 
+    @property
+    def buffer(self):
+        return (self._rbuffers, self._wbuffers)
+
     def __del__(self):
         self.close()
 

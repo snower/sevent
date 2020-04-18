@@ -190,6 +190,10 @@ class Buffer(EventEmitter, BaseBuffer):
         self._drain_time = time.time()
         self._regain_time = time.time()
 
+    @property
+    def full(self):
+        return self._full
+
     def on_drain(self, callback):
         self.on("drain", callback)
 
@@ -228,6 +232,13 @@ class Buffer(EventEmitter, BaseBuffer):
             self.do_drain()
         return self
 
+    def extend(self, o):
+        BaseBuffer.write(self, o)
+
+        if self._len > self._drain_size and not self._full:
+            self.do_drain()
+        return self
+
     def read(self, size=-1):
         data = BaseBuffer.read(self, size)
 
@@ -241,6 +252,13 @@ class Buffer(EventEmitter, BaseBuffer):
         if self._full and self._len < self._regain_size:
             self.do_regain()
         return data
+
+    def link(self, o):
+        self.remove_all_listeners("drain")
+        self.remove_all_listeners("regain")
+        self.on_drain(lambda b: o.do_drain())
+        self.on_regain(lambda b: o.do_regain())
+        return self
 
     def __iter__(self):
         while True:

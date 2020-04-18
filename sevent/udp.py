@@ -45,6 +45,14 @@ class Socket(EventEmitter):
         self._address_cache = {}
         self._state = STATE_INITIALIZED
 
+    @property
+    def socket(self):
+        return self._socket
+
+    @property
+    def buffer(self):
+        return (self._rbuffers, self._wbuffers)
+
     def _connect(self, address, callback):
         def resolve_callback(hostname, ip):
             if not ip:
