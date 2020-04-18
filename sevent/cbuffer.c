@@ -43,7 +43,7 @@ static short bytes_fast_buffer_index = 0;
 
 static int socket_recv_size = 8192 - sizeof(PyBytesObject);
 static int socket_recv_count = 64;
-static int socket_send_count = 64;
+static int socket_send_count = 512;
 
 #define BufferQueue_malloc() buffer_queue_fast_buffer_index > 0 ? buffer_queue_fast_buffer[--buffer_queue_fast_buffer_index] : (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue))
 #define BufferQueue_free(buffer_queue) if(buffer_queue_fast_buffer_index < BUFFER_QUEUE_FAST_BUFFER_COUNT) { \
@@ -810,6 +810,8 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
             if(objbuf->buffer_head == NULL) {
                 objbuf->buffer_tail = NULL;
             }
+        } else {
+            return PyInt_FromLong(send_len);
         }
     }
     return PyInt_FromLong(send_len);
@@ -1067,6 +1069,8 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
             if(objbuf->buffer_head == NULL) {
                 objbuf->buffer_tail = NULL;
             }
+        } else {
+            return PyInt_FromLong(send_len);
         }
     }
     return PyInt_FromLong(send_len);
