@@ -254,8 +254,6 @@ class Buffer(EventEmitter, BaseBuffer):
         return data
 
     def link(self, o):
-        self.remove_all_listeners("drain")
-        self.remove_all_listeners("regain")
         self.on_drain(lambda b: o.do_drain())
         self.on_regain(lambda b: o.do_regain())
         return self
