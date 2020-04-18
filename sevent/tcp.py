@@ -350,7 +350,7 @@ class Socket(event.EventEmitter):
                     data = self._socket.recv(self.RECV_BUFFER_SIZE)
                     if not data:
                         break
-                    self._rbuffers.write(data)
+                    BaseBuffer.write(self._wbuffers, data)
                 except socket.error as e:
                     if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                         break
@@ -500,9 +500,9 @@ class Socket(event.EventEmitter):
         if self._state != STATE_STREAMING:
             if self._state == STATE_CONNECTING:
                 if data.__class__ == Buffer:
-                    self._wbuffers.extend(data)
+                    BaseBuffer.extend(self._wbuffers, data)
                 else:
-                    self._wbuffers.write(data)
+                    BaseBuffer.write(self._wbuffers, data)
 
                 if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
                     return self._connect_and_write()
@@ -512,7 +512,7 @@ class Socket(event.EventEmitter):
         if data.__class__ == Buffer:
             BaseBuffer.extend(self._wbuffers, data)
         else:
-            self._wbuffers.write(data)
+            BaseBuffer.write(self._wbuffers, data)
 
         if not self._write_handler:
             if self._write():

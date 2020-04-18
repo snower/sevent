@@ -209,7 +209,7 @@ class Socket(EventEmitter):
             while self._read_handler:
                 try:
                     data, address = self._socket.recvfrom(self.RECV_BUFFER_SIZE)
-                    self._rbuffers.write(data, address)
+                    BaseBuffer.write(self._wbuffers, data, address)
                 except socket.error as e:
                     if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                         break
@@ -346,7 +346,7 @@ class Socket(EventEmitter):
                 if not ip:
                     return self._error(ResolveError('can not resolve hostname %s' % str(address)))
                 self._address_cache[hostname] = ip
-                self._wbuffers.write(data, (ip, address[1]))
+                BaseBuffer.write(self._wbuffers, data, (ip, address[1]))
                 return do_write()
 
             if not self._dns_resolver:
@@ -355,7 +355,7 @@ class Socket(EventEmitter):
             return False
         else:
             ip = self._address_cache[address[0]]
-            self._wbuffers.write(data, (ip, address[1]))
+            BaseBuffer.write(self._wbuffers, data, (ip, address[1]))
             return do_write()
 
 class Socket6(Socket):
