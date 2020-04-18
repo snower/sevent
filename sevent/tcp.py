@@ -5,7 +5,7 @@ import socket
 import errno
 from . import event
 from .loop import instance, MODE_IN, MODE_OUT
-from .buffer import Buffer, cbuffer, RECV_BUFFER_SIZE
+from .buffer import Buffer, BaseBuffer, cbuffer, RECV_BUFFER_SIZE
 from .dns import DNSResolver
 from .errors import SocketClosed, ResolveError, ConnectTimeout, AddressError, ConnectError
 
@@ -510,7 +510,7 @@ class Socket(event.EventEmitter):
             raise SocketClosed()
 
         if data.__class__ == Buffer:
-            self._wbuffers.extend(data)
+            BaseBuffer.extend(self._wbuffers, data)
         else:
             self._wbuffers.write(data)
 
@@ -519,6 +519,9 @@ class Socket(event.EventEmitter):
                 if self._has_drain_event:
                     self._loop.add_async(self.emit_drain, self)
                 return True
+            else:
+                if self._wbuffers._len > self._wbuffers._drain_size and not self._wbuffers._full:
+                    self._wbuffers.do_drain()
             try:
                 self._write_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._write_cb)
             except Exception as e:
