@@ -358,6 +358,17 @@ class Socket(EventEmitter):
             BaseBuffer.write(self._wbuffers, data, (ip, address[1]))
             return do_write()
 
+    def link(self, socket):
+        assert isinstance(socket, Socket), 'not Socket'
+
+        rbuffer, wbuffer = socket.buffer
+        self._wbuffers.link(rbuffer)
+        wbuffer.link(self._rbuffers)
+        self.on_data(lambda s, data: socket.write(data))
+        socket.on_data(lambda s, data: self.write(data))
+        self.on_close(lambda s: socket.end())
+        socket.on_close(lambda s: self.end())
+
 class Socket6(Socket):
     pass
 
