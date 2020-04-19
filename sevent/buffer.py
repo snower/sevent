@@ -258,6 +258,10 @@ class Buffer(EventEmitter, BaseBuffer):
         self.on_regain(lambda b: o.do_regain())
         return self
 
+    def close(self):
+        self.read()
+        self.remove_all_listeners()
+
     def __iter__(self):
         while True:
             data = self.next()

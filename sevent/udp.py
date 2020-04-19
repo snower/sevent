@@ -171,6 +171,8 @@ class Socket(EventEmitter):
             except Exception as e:
                 logging.exception("tcp emit close error:%s", e)
             self.remove_all_listeners()
+            self._rbuffers.close()
+            self._wbuffers.close()
             self._rbuffers = None
             self._wbuffers = None
             self._address_cache = None
