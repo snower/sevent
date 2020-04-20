@@ -151,16 +151,16 @@ class DNSResolver(EventEmitter):
         self.once("resolve", callback)
 
     def create_socket(self):
-        from .udp import Socket, Socket6
+        from .udp import Socket
         self._socket = Socket(self._loop)
-        self._socket.on("data", self.on_data)
-        self._socket.on("close", self.on_close)
+        self._socket.on_data(self.on_data)
+        self._socket.on_close(self.on_close)
 
     def create_socket6(self):
         from .udp import Socket6
         self._socket6 = Socket6(self._loop)
-        self._socket6.on("data", self.on_data)
-        self._socket6.on("close", self.on_close)
+        self._socket6.on_data(self.on_data)
+        self._socket6.on_close(self.on_close)
 
     def parse_resolv(self):
         servers = []
@@ -224,7 +224,6 @@ class DNSResolver(EventEmitter):
         hostname = hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname
         for callback in callbacks:
             self._loop.add_async(callback, hostname, ip)
-
         self._loop.add_async(self.emit_resolve, self, hostname, ip)
 
     def on_data(self, socket, buffer):
@@ -241,7 +240,6 @@ class DNSResolver(EventEmitter):
                     self.call_callback(hostname, str(rrs[0].rdata))
                 elif self._loading[hostname] <= 0:
                     self.call_callback(hostname, None)
-
                 if self._loading[hostname] <= 0:
                     self._loading.pop(hostname)
             except Exception as e:
@@ -288,7 +286,6 @@ class DNSResolver(EventEmitter):
         hostname = ensure_bytes(hostname)
         if not hostname:
             callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, None)
-
         elif self.is_ip(hostname):
             callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, hostname)
         elif hostname in self._hosts:
