@@ -21,21 +21,21 @@ else:
     long_description = ''
 
 setup(
-    name = 'sevent',
-    version = '0.1.4',
-    packages = ['sevent', 'sevent.impl'],
-    ext_modules = ext_modules,
-    package_data = {
+    name='sevent',
+    version='0.1.5',
+    packages=['sevent', 'sevent.impl'],
+    ext_modules=ext_modules,
+    package_data={
         '': ['README.md'],
     },
-    install_requires = [
+    install_requires=[
         'dnslib>=0.9.7',
     ],
-    author = 'snower',
-    author_email = 'sujian199@gmail.com',
-    url = 'https://github.com/snower/sevent',
-    license = 'MIT',
-    description = 'lightweight event loop',
-    long_description = long_description,
+    author='snower',
+    author_email='sujian199@gmail.com',
+    url='https://github.com/snower/sevent',
+    license='MIT',
+    description='lightweight event loop',
+    long_description=long_description,
     long_description_content_type="text/markdown",
 )
