@@ -18,16 +18,17 @@ STATE_LISTENING = 0x08
 STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
 
+
 class Socket(event.EventEmitter):
     MAX_BUFFER_SIZE = None
     RECV_BUFFER_SIZE = RECV_BUFFER_SIZE
 
     @classmethod
-    def config(cls, max_buffer_size = None, recv_buffer_size = RECV_BUFFER_SIZE, **kwargs):
+    def config(cls, max_buffer_size=None, recv_buffer_size=RECV_BUFFER_SIZE, **kwargs):
         cls.MAX_BUFFER_SIZE = max_buffer_size
         cls.RECV_BUFFER_SIZE = recv_buffer_size
 
-    def __init__(self, loop=None, socket=None, address=None, dns_resolver = None, max_buffer_size = None):
+    def __init__(self, loop=None, socket=None, address=None, dns_resolver=None, max_buffer_size=None):
         super(Socket, self).__init__()
         self._loop = loop or instance()
         self._socket = socket
@@ -68,7 +69,7 @@ class Socket(event.EventEmitter):
 
     @property
     def buffer(self):
-        return (self._rbuffers, self._wbuffers)
+        return self._rbuffers, self._wbuffers
 
     def __del__(self):
         self.close()
@@ -560,6 +561,7 @@ class Socket(event.EventEmitter):
         self.on_close(lambda s: socket.end())
         socket.on_close(lambda s: self.end())
 
+
 class Socket6(Socket):
     pass
 
@@ -688,6 +690,7 @@ class Server(event.EventEmitter):
                 except Exception as e:
                     logging.error("server close socket error: %s", e)
             self._state = STATE_CLOSED
+
             def on_close():
                 try:
                     self.emit_close(self)

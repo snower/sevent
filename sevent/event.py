@@ -50,6 +50,7 @@ class EventEmitter(object):
             setattr(self, "emit_" + event_name, list(self._events[event_name])[0])
         elif not self._events[event_name] and len(self._events_once[event_name]) == 1:
             callback = list(self._events_once[event_name])[0]
+
             def emit_callback(*args, **kwargs):
                 try:
                     return callback(*args, **kwargs)

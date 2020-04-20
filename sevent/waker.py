@@ -5,10 +5,12 @@
 import os
 import socket
 
+
 def set_close_exec(fd):
     import fcntl
     flags = fcntl.fcntl(fd, fcntl.F_GETFD)
     fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
+
 
 def _set_nonblocking(fd):
     import fcntl
@@ -48,8 +50,9 @@ class PipeWaker(object):
         self.reader.close()
         try:
             self.writer.close()
-        except:
+        except Exception:
             pass
+
 
 class SocketWaker(object):
     def __init__(self):
@@ -100,8 +103,9 @@ class SocketWaker(object):
         self.reader.close()
         try:
             self.writer.close()
-        except:
+        except Exception:
             pass
+
 
 def Waker():
     if os.name == 'nt':

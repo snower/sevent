@@ -21,6 +21,7 @@ QCLASS_IN = 1
 STATUS_OPENED = 0
 STATUS_CLOSED = 1
 
+
 class DNSCache(object):
     def __init__(self, loop, default_ttl=60):
         self._loop = loop or instance()
@@ -105,6 +106,7 @@ class DNSCache(object):
     def __contains__(self, hostname):
         return bool(self.get(hostname)[0])
 
+
 class DNSResolver(EventEmitter):
     _instance = None
 
@@ -114,7 +116,7 @@ class DNSResolver(EventEmitter):
             cls._instance = cls()
         return cls._instance
 
-    def __init__(self, loop=None, servers=None, hosts=None, resolve_timeout = None, resend_timeout = 0.5):
+    def __init__(self, loop=None, servers=None, hosts=None, resolve_timeout=None, resend_timeout=0.5):
         super(DNSResolver, self).__init__()
 
         self._loop = loop or instance()
@@ -141,7 +143,8 @@ class DNSResolver(EventEmitter):
         if not hosts:
             self.parse_hosts()
 
-        self._resolve_timeout = resolve_timeout if resolve_timeout else ((len(self._servers) + len(self._server6s)) * resend_timeout + 4)
+        self._resolve_timeout = resolve_timeout if resolve_timeout else ((len(self._servers) + len(self._server6s))
+                                                                         * resend_timeout + 4)
         self._resend_timeout = resend_timeout
 
     def on_resolve(self, callback):
@@ -245,7 +248,7 @@ class DNSResolver(EventEmitter):
             except Exception as e:
                 pass
 
-    def send_req(self, hostname, server_index = 0):
+    def send_req(self, hostname, server_index=0):
         if not self._servers:
             return
 
@@ -262,7 +265,7 @@ class DNSResolver(EventEmitter):
                 self.send_req(hostname, server_index + 1)
         self._loop.add_timeout(self._resend_timeout, on_timeout)
 
-    def send_req6(self, hostname, server_index = 0):
+    def send_req6(self, hostname, server_index=0):
         if not self._server6s:
             return
 
@@ -279,7 +282,7 @@ class DNSResolver(EventEmitter):
                 self.send_req6(hostname, server_index + 1)
         self._loop.add_timeout(self._resend_timeout, on_timeout)
 
-    def resolve(self, hostname, callback, timeout = None):
+    def resolve(self, hostname, callback, timeout=None):
         if self._status == STATUS_CLOSED:
             return callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, None)
 

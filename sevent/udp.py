@@ -18,6 +18,7 @@ STATE_BINDING = 0x08
 STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
 
+
 class Socket(EventEmitter):
     MAX_BUFFER_SIZE = None
     RECV_BUFFER_SIZE = RECV_BUFFER_SIZE
@@ -51,7 +52,7 @@ class Socket(EventEmitter):
 
     @property
     def buffer(self):
-        return (self._rbuffers, self._wbuffers)
+        return self._rbuffers, self._wbuffers
 
     def _connect(self, address, callback):
         def resolve_callback(hostname, ip):
@@ -153,8 +154,8 @@ class Socket(EventEmitter):
             except Exception as e:
                 logging.error("socket close remove_fd error:%s", e)
             self._write_handler = False
-
         self._state = STATE_CLOSED
+
         def on_close():
             if self._socket:
                 try:
@@ -363,8 +364,10 @@ class Socket(EventEmitter):
             BaseBuffer.write(self._wbuffers, data, (ip, address[1]))
             return do_write()
 
+
 class Socket6(Socket):
     pass
+
 
 class Server(Socket):
     def __init__(self, loop=None):
@@ -387,6 +390,7 @@ class Server(Socket):
 
     def __del__(self):
         self.close()
+
 
 class Server6(Server):
     pass

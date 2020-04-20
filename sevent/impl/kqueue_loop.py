@@ -11,6 +11,7 @@ try:
 except:
     MAX_EVENTS = 1024
 
+
 class KqueueLoop(IOLoop):
     def __init__(self):
         super(KqueueLoop, self).__init__()

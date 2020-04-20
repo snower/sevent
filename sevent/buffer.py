@@ -178,6 +178,7 @@ if cbuffer is None:
             buffer = self.join()
             return buffer.__hash__()
 
+
 class Buffer(EventEmitter, BaseBuffer):
     def __init__(self, max_buffer_size = None):
         EventEmitter.__init__(self)
@@ -222,7 +223,7 @@ class Buffer(EventEmitter, BaseBuffer):
         except Exception as e:
             logging.exception("buffer emit regain error:%s", e)
 
-    def write(self, data, odata = None):
+    def write(self, data, odata=None):
         if odata is None:
             BaseBuffer.write(self, data)
         else:
