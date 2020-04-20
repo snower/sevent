@@ -59,8 +59,8 @@ class TimeoutHandler(object):
         '''deadline here is absolute timestamp'''
         self.callback = callback
         self.deadline = deadline
-        self.args=args
-        self.kwargs=kwargs
+        self.args = args
+        self.kwargs = kwargs
         self.canceled = False
 
     def __cmp__(self, other):
@@ -239,9 +239,9 @@ class IOLoop(object):
 
     def cancel_timeout(self, handler):
         if handler.__class__ == TimeoutHandler:
+            handler.callback = None
+            handler.args = None
+            handler.kwargs = None
             handler.canceled = True
         else:
             self._timeout_handlers.remove(handler)
-        self.callback = None
-        self.args = None
-        self.kwargs = None

@@ -14,7 +14,7 @@ class SelectLoop(IOLoop):
 
     def _poll(self, timeout):
         try:
-            r, w, x = select.select(self._r_list, self._w_list, self._x_list,timeout)
+            r, w, x = select.select(self._r_list, self._w_list, self._x_list, timeout)
         except Exception:
             return []
         results = defaultdict(lambda: MODE_NULL)

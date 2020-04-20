@@ -10,6 +10,9 @@ class EpollLoop(IOLoop):
         self._epoll = select.epoll()
 
         self._poll = self._epoll.poll
+        self._add_fd = self._epoll.register
+        self._remove_fd = self._epoll.unregister
+        self._modify_fd = self._epoll.modify
 
     def _poll(self, timeout):
         return self._epoll.poll(timeout)
