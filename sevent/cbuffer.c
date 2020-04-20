@@ -673,6 +673,7 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
     if (!PyArg_ParseTuple(args, "i|i", &sock_fd, &max_len)) {
         return NULL;
     }
+    max_len -= Py_SIZE(objbuf);
 
     int max_count = socket_recv_count;
     PyBytesObject* buf;
@@ -826,6 +827,7 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
     if (!PyArg_ParseTuple(args, "i|ii", &sock_fd, &sa_family, &max_len)) {
         return NULL;
     }
+    max_len -= Py_SIZE(objbuf);
 
     int max_count = socket_recv_count;
     struct sockaddr_in6 addr;
