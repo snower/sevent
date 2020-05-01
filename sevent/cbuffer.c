@@ -974,10 +974,10 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
                 return NULL;
             } else {
 #if PY_MAJOR_VERSION >= 3
-                char *host_chars = PyBytes_AS_STRING(host);
+                const char *host_chars = PyBytes_AS_STRING(host);
 #else
                 PyObject* host_string_obj = PyUnicode_AsUTF8String(host);
-                char *host_chars = PyString_AS_STRING(host_string_obj);
+                const char *host_chars = PyString_AS_STRING(host_string_obj);
 #endif
                 if(inet_pton(sa_family, host_chars, sa_family == AF_INET ? (void *)&((struct sockaddr_in*)&addr)->sin_addr : (void *)&((struct sockaddr_in6*)&addr)->sin6_addr) != 1) {
 #if PY_MAJOR_VERSION < 3
@@ -992,20 +992,14 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
             }
         } else {
 #if PY_MAJOR_VERSION >= 3
-            char *host_chars = PyUnicode_AsUTF8(host);
+            const char *host_chars = PyUnicode_AsUTF8(host);
 #else
-            char *host_chars = PyString_AS_STRING(host);
+            const char *host_chars = PyString_AS_STRING(host);
 #endif
             if(inet_pton(sa_family, host_chars, sa_family == AF_INET ? (void *)&((struct sockaddr_in*)&addr)->sin_addr : (void *)&((struct sockaddr_in6*)&addr)->sin6_addr) != 1) {
-#if PY_MAJOR_VERSION >= 3
-                PyMem_Free(host_chars);
-#endif
                 PyErr_SetString(PyExc_OSError, "host inet_pton error");
                 return NULL;
             }
-#if PY_MAJOR_VERSION >= 3
-            PyMem_Free(host_chars);
-#endif
         }
 
         port = PyTuple_GET_ITEM(objbuf->buffer_head->odata, 1);
