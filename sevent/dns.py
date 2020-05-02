@@ -172,18 +172,18 @@ class DNSResolver(EventEmitter):
                 content = f.readlines()
                 for line in content:
                     line = line.strip()
-                    if not line or line[0] == '#' or not line.startswith(b'nameserver'):
+                    if not line or line[:1] == b'#' or not line.startswith(b'nameserver'):
                         continue
 
-                    parts = line.split()
+                    if is_py3 and type(line) != str:
+                        parts = line.decode("utf-8").split()
+                    else:
+                        parts = line.split()
                     if len(parts) < 2:
                         continue
                     server = parts[1].strip()
                     if not self.is_ip(server):
                         continue
-
-                    if is_py3 and type(server) != str:
-                        server = server.decode('utf8')
                     servers.append(server)
         except IOError:
             pass
@@ -202,10 +202,13 @@ class DNSResolver(EventEmitter):
             with open(etc_path, 'rb') as f:
                 for line in f.readlines():
                     line = line.strip()
-                    if not line or line[0] == '#':
+                    if not line or line[:1] == b'#':
                         continue
 
-                    parts = line.split()
+                    if is_py3 and type(line) != str:
+                        parts = line.decode("utf-8").split()
+                    else:
+                        parts = line.split()
                     if len(parts) < 2:
                         continue
                     ip = parts[0].strip()
@@ -216,7 +219,7 @@ class DNSResolver(EventEmitter):
                         hostname = parts[i].strip()
                         if not hostname:
                             continue
-                        self._hosts[hostname] = ip
+                        self._hosts[ensure_bytes(hostname)] = ip
         except IOError:
             self._hosts[b'localhost'] = '127.0.0.1'
 
