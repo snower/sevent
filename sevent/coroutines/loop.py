@@ -8,7 +8,7 @@ import greenlet
 
 def warp_coroutine(BaseIOLoop):
     class IOLoop(BaseIOLoop):
-        def call_soon(self, callback, *args, **kwargs):
+        def call_async(self, callback, *args, **kwargs):
             if callback.__code__.co_flags & 0x80 == 0:
                 return self._handlers.append((callback, args, kwargs))
 
@@ -46,7 +46,7 @@ def warp_coroutine(BaseIOLoop):
                     await callback(*args, **kwargs)
                 finally:
                     self.stop()
-            self.call_soon(do_async_run)
+            self.call_async(do_async_run)
             return self.start()
 
     return IOLoop
