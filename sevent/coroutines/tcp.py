@@ -17,6 +17,8 @@ STATE_CLOSED = 0x20
 def warp_coroutine(BaseSocket, BaseServer):
     class Socket(BaseSocket):
         async def connectof(self, address, timeout=5):
+            assert self.emit_connect == null_emit_callback, "already connecting"
+
             if self._state != STATE_INITIALIZED:
                 if self._state == STATE_CLOSED:
                     raise SocketClosed()
