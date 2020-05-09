@@ -18,7 +18,7 @@ s.on_close(lambda s: sevent.current().stop())
 s.connect(('www.google.com', 80))
 s.write(b'GET / HTTP/1.0\r\nHost: www.google.com\r\nConnection: Close\r\n\r\n')
 
-sevent.current().start()
+sevent.instance().start()
 ```
 
 ```python
@@ -26,48 +26,47 @@ import sevent
 
 async def http_test():
     s = sevent.tcp.Socket()
-    await s.connect(('www.google.com', 80))
+    await s.connectof(('www.google.com', 80))
     await s.send(b'GET / HTTP/1.0\r\nHost: www.google.com\r\nConnection: Close\r\n\r\n')
     data = await s.recv()
     print(data.read())
-    await s.close()
+    await s.closeof()
     
-sevent.current().run(http_test)
+sevent.run(http_test)
 ```
 
 ### Simple TCP Port Forward
 
 ```python
 import sys
-from sevent import tcp
-from sevent import current
+import sevent
 
 def on_connection(server, conn):
-    pconn = tcp.Socket()
+    pconn = sevent.tcp.Socket()
     conn.link(pconn)
     pconn.connect((sys.argv[2], int(sys.argv[3])))
 
-server = tcp.Server()
+server = sevent.tcp.Server()
 server.on_connection(on_connection)
 server.listen(("0.0.0.0", int(sys.argv[1])))
-current().start()
+sevent.instance().start()
 ```
 
 ```python
 import sys
-from sevent import tcp
-from sevent import current
+import sevent
 
-async def proxy_server():
+async def tcp_port_forward_server():
+    server = sevent.tcp.Server()
+    server.listen(("0.0.0.0", int(sys.argv[1])))
+
     while True:
         conn = await server.accept()
-        pconn = tcp.Socket()
+        pconn = sevent.tcp.Socket()
         conn.link(pconn)
-        current().call_async(pconn.connect, (sys.argv[2], int(sys.argv[3])))
+        pconn.connect((sys.argv[2], int(sys.argv[3])))
 
-server = tcp.Server()
-server.listen(("0.0.0.0", int(sys.argv[1])))
-current().run(proxy_server)
+sevent.run(tcp_port_forward_server)
 ```
 
 # License
