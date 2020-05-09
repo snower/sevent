@@ -84,6 +84,7 @@ def warp_coroutine(BaseSocket, BaseServer):
                 self.emit_drain = emit_drain
                 self.emit_close = emit_close
                 self.emit_error = emit_error
+                self._has_drain_event = False
                 return child_gr.switch()
 
             def on_close(socket):
@@ -93,6 +94,7 @@ def warp_coroutine(BaseSocket, BaseServer):
                 self.emit_drain = emit_drain
                 self.emit_close = emit_close
                 self.emit_error = emit_error
+                self._has_drain_event = False
                 return child_gr.throw(SocketClosed())
 
             def on_error(socker, e):
@@ -102,11 +104,13 @@ def warp_coroutine(BaseSocket, BaseServer):
                 self.emit_drain = emit_drain
                 self.emit_close = emit_close
                 self.emit_error = emit_error
+                self._has_drain_event = False
                 return child_gr.throw(e)
 
             setattr(self, "emit_drain", on_drain)
             setattr(self, "emit_close", on_close)
             setattr(self, "emit_error", on_error)
+            self._has_drain_event = True
             return main.switch()
 
         async def recv(self, size=0):
