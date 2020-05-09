@@ -2,6 +2,7 @@
 
 import logging
 from collections import defaultdict
+from .utils import is_py3
 
 
 def null_emit_callback(*args, **kwargs):
@@ -142,3 +143,8 @@ class EventEmitter(object):
         elif item[:3] == "on_":
             return lambda *args, **kwargs: self.on(item[3:], *args, **kwargs)
         return object.__getattribute__(self, item)
+
+
+if is_py3:
+    from .coroutines.event import warp_coroutine
+    EventEmitter = warp_coroutine(EventEmitter)

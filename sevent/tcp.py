@@ -3,7 +3,8 @@
 import logging
 import socket
 import errno
-from . import event
+from .utils import is_py3
+from .event import EventEmitter
 from .loop import instance, MODE_IN, MODE_OUT
 from .buffer import Buffer, BaseBuffer, cbuffer, RECV_BUFFER_SIZE
 from .dns import DNSResolver
@@ -19,7 +20,7 @@ STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
 
 
-class Socket(event.EventEmitter):
+class Socket(EventEmitter):
     MAX_BUFFER_SIZE = None
     RECV_BUFFER_SIZE = RECV_BUFFER_SIZE
 
@@ -29,7 +30,7 @@ class Socket(event.EventEmitter):
         cls.RECV_BUFFER_SIZE = recv_buffer_size
 
     def __init__(self, loop=None, socket=None, address=None, dns_resolver=None, max_buffer_size=None):
-        super(Socket, self).__init__()
+        EventEmitter.__init__(self)
         self._loop = loop or instance()
         self._socket = socket
         self._fileno = 0
@@ -75,19 +76,19 @@ class Socket(event.EventEmitter):
         self.close()
 
     def on(self, event_name, callback):
-        super(Socket, self).on(event_name, callback)
+        EventEmitter.on(self, event_name, callback)
 
         if event_name == "drain":
             self._has_drain_event = True
 
     def once(self, event_name, callback):
-        super(Socket, self).once(event_name, callback)
+        EventEmitter.once(self, event_name, callback)
 
         if event_name == "drain":
             self._has_drain_event = True
 
     def remove_listener(self, event_name, callback):
-        super(Socket, self).remove_listener(event_name, callback)
+        EventEmitter.remove_listener(self, event_name, callback)
 
         if not self._events[event_name] and not self._events_once[event_name]:
             if event_name == "drain":
@@ -212,7 +213,7 @@ class Socket(event.EventEmitter):
     def _error(self, error):
         self._loop.add_async(self.emit_error, self, error)
         self._loop.add_async(self.close)
-        logging.error("socket error:%s",error)
+        logging.error("socket error:%s", error)
 
     def _connect_cb(self):
         if self._state != STATE_CONNECTING:
@@ -562,13 +563,9 @@ class Socket(event.EventEmitter):
         socket.on_close(lambda s: self.end())
 
 
-class Socket6(Socket):
-    pass
-
-
-class Server(event.EventEmitter):
+class Server(EventEmitter):
     def __init__(self, loop=None, dns_resolver = None):
-        super(Server, self).__init__()
+        EventEmitter.__init__(self)
         self._loop = loop or instance()
         self._dns_resolver = dns_resolver or DNSResolver.default()
         self._fileno = 0
@@ -590,6 +587,15 @@ class Server(event.EventEmitter):
         self.on("close", callback)
 
     def on_error(self, callback):
+        self.on("error", callback)
+
+    def once_connection(self, callback):
+        self.on("connection", callback)
+
+    def once_close(self, callback):
+        self.on("close", callback)
+
+    def once_error(self, callback):
         self.on("error", callback)
 
     def enable_fast_open(self):
@@ -700,5 +706,6 @@ class Server(event.EventEmitter):
             self._loop.add_async(on_close)
 
 
-class Server6(Server):
-    pass
+if is_py3:
+    from .coroutines.tcp import warp_coroutine
+    Socket, Server = warp_coroutine(Socket, Server)

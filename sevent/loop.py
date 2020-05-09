@@ -7,6 +7,7 @@ import logging
 import threading
 from collections import defaultdict
 from .waker import Waker
+from .utils import is_py3
 
 ''' You can only use instance(). Don't create a Loop() '''
 
@@ -245,3 +246,8 @@ class IOLoop(object):
             handler.canceled = True
         else:
             self._timeout_handlers.remove(handler)
+
+
+if is_py3:
+    from .coroutines.loop import warp_coroutine
+    IOLoop = warp_coroutine(IOLoop)

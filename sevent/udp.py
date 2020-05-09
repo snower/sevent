@@ -5,6 +5,7 @@
 import logging
 import socket
 import errno
+from .utils import is_py3
 from .event import EventEmitter
 from .loop import instance, MODE_IN, MODE_OUT
 from .dns import DNSResolver
@@ -29,7 +30,7 @@ class Socket(EventEmitter):
         cls.RECV_BUFFER_SIZE = recv_buffer_size
 
     def __init__(self, loop=None, dns_resolver=None, max_buffer_size = None):
-        super(Socket, self).__init__()
+        EventEmitter.__init__(self)
         self._loop = loop or instance()
         self._dns_resolver = dns_resolver
 
@@ -90,19 +91,19 @@ class Socket(EventEmitter):
         self.close()
 
     def on(self, event_name, callback):
-        super(Socket, self).on(event_name, callback)
+        EventEmitter.on(self, event_name, callback)
 
         if event_name == "drain":
             self._has_drain_event = True
 
     def once(self, event_name, callback):
-        super(Socket, self).once(event_name, callback)
+        EventEmitter.once(self, event_name, callback)
 
         if event_name == "drain":
             self._has_drain_event = True
 
     def remove_listener(self, event_name, callback):
-        super(Socket, self).remove_listener(event_name, callback)
+        EventEmitter.remove_listener(self, event_name, callback)
 
         if not self._events[event_name] and not self._events_once[event_name]:
             if event_name == "drain":
@@ -365,8 +366,9 @@ class Socket(EventEmitter):
             return do_write()
 
 
-class Socket6(Socket):
-    pass
+if is_py3:
+    from .coroutines.udp import warp_coroutine
+    Socket = warp_coroutine(Socket)
 
 
 class Server(Socket):
@@ -390,7 +392,3 @@ class Server(Socket):
 
     def __del__(self):
         self.close()
-
-
-class Server6(Server):
-    pass

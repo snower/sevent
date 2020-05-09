@@ -117,7 +117,7 @@ class DNSResolver(EventEmitter):
         return cls._instance
 
     def __init__(self, loop=None, servers=None, hosts=None, resolve_timeout=None, resend_timeout=0.5):
-        super(DNSResolver, self).__init__()
+        EventEmitter.__init__(self)
 
         self._loop = loop or instance()
         self._servers = []
@@ -160,8 +160,8 @@ class DNSResolver(EventEmitter):
         self._socket.on_close(self.on_close)
 
     def create_socket6(self):
-        from .udp import Socket6
-        self._socket6 = Socket6(self._loop)
+        from .udp import Socket
+        self._socket6 = Socket(self._loop)
         self._socket6.on_data(self.on_data)
         self._socket6.on_close(self.on_close)
 
@@ -382,3 +382,8 @@ class DNSResolver(EventEmitter):
             except (TypeError, ValueError, OSError, IOError):
                 pass
         return False
+
+
+if is_py3:
+    from .coroutines.dns import warp_coroutine
+    DNSResolver = warp_coroutine(DNSResolver)

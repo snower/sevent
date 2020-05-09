@@ -30,6 +30,7 @@ setup(
     },
     install_requires=[
         'dnslib>=0.9.7',
+        'greenlet>=0.4.2',
     ],
     author='snower',
     author_email='sujian199@gmail.com',
