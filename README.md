@@ -9,8 +9,8 @@ The highest performance event loop.
 ```python
 import sevent
 
-def on_data(s, data):
-    print(data.read())
+def on_data(s, buffer):
+    print(buffer.read())
 
 s = sevent.tcp.Socket()
 s.on_data(on_data)
@@ -28,8 +28,8 @@ async def http_test():
     s = sevent.tcp.Socket()
     await s.connectof(('www.google.com', 80))
     await s.send(b'GET / HTTP/1.0\r\nHost: www.google.com\r\nConnection: Close\r\n\r\n')
-    data = await s.recv()
-    print(data.read())
+    buffer = await s.recv()
+    print(buffer.read())
     await s.closeof()
     
 sevent.run(http_test)
