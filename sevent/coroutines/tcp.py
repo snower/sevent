@@ -4,6 +4,7 @@
 
 import greenlet
 from ..errors import SocketClosed
+from ..event import null_emit_callback
 
 STATE_INITIALIZED = 0x01
 STATE_CONNECTING = 0x02
@@ -15,28 +16,56 @@ STATE_CLOSED = 0x20
 
 def warp_coroutine(BaseSocket, BaseServer):
     class Socket(BaseSocket):
-        def connect(self, address, timeout=5):
+        async def connectof(self, address, timeout=5):
+            if self._state != STATE_INITIALIZED:
+                if self._state == STATE_CLOSED:
+                    raise SocketClosed()
+                return
+
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
-            if main is None:
-                return BaseSocket.connect(self, address, timeout)
+            assert main is not None, "must be running in async func"
 
-            async def do_connect():
-                def on_connect(socket):
-                    self.remove_listener("connect", on_connect)
-                    self.remove_listener("close", on_close)
-                    return child_gr.switch()
+            emit_connect = self.emit_connect
+            emit_close = self.emit_close
+            emit_error = self.emit_error
 
-                def on_close(socket):
-                    return child_gr.throw(SocketClosed())
+            def on_connect(socket):
+                if self.emit_connect != on_connect:
+                    return
 
-                self.on_connect(on_connect)
-                self.on_close(on_close)
-                BaseSocket.connect(self, address, timeout)
-                return main.switch()
-            return do_connect()
+                self.emit_connect = emit_connect
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.switch()
+
+            def on_close(socket):
+                if self.emit_close != on_close:
+                    return
+
+                self.emit_connect = emit_connect
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.throw(SocketClosed())
+
+            def on_error(socker, e):
+                if self.emit_error != on_error:
+                    return
+
+                self.emit_connect = emit_connect
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.throw(e)
+
+            setattr(self, "emit_connect", on_connect)
+            setattr(self, "emit_close", on_close)
+            setattr(self, "emit_error", on_error)
+            self.connect(address, timeout)
+            return main.switch()
 
         async def send(self, data):
+            assert self.emit_drain == null_emit_callback, "already sending"
+
             if self.write(data):
                 return
 
@@ -44,19 +73,45 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
+            emit_drain = self.emit_drain
+            emit_close = self.emit_close
+            emit_error = self.emit_error
+
             def on_drain(socket):
-                self.remove_listener("close", on_close)
-                self.remove_listener("drain", on_drain)
+                if self.emit_drain != on_drain:
+                    return
+
+                self.emit_drain = emit_drain
+                self.emit_close = emit_close
+                self.emit_error = emit_error
                 return child_gr.switch()
 
             def on_close(socket):
+                if self.emit_close != on_close:
+                    return
+
+                self.emit_drain = emit_drain
+                self.emit_close = emit_close
+                self.emit_error = emit_error
                 return child_gr.throw(SocketClosed())
 
-            self.on_drain(on_drain)
-            self.on_close(on_close)
+            def on_error(socker, e):
+                if self.emit_error != on_error:
+                    return
+
+                self.emit_drain = emit_drain
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.throw(e)
+
+            setattr(self, "emit_drain", on_drain)
+            setattr(self, "emit_close", on_close)
+            setattr(self, "emit_error", on_error)
             return main.switch()
 
         async def recv(self, size=0):
+            assert self.emit_data == null_emit_callback, "already recving"
+
             if size <= 0 and self._rbuffers:
                 return self._rbuffers
 
@@ -64,65 +119,112 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
+            emit_data = self.emit_data
+            emit_close = self.emit_close
+            emit_error = self.emit_error
+
             def on_data(socket, buffer):
                 if len(buffer) < size:
                     return
-                self.remove_listener("data", on_data)
-                self.remove_listener("close", on_close)
+
+                if self.emit_data != on_data:
+                    return
+
+                self.emit_data = emit_data
+                self.emit_close = emit_close
+                self.emit_error = emit_error
                 return child_gr.switch(buffer)
 
             def on_close(socket):
+                if self.emit_close != on_close:
+                    return
+
+                self.emit_data = emit_data
+                self.emit_close = emit_close
+                self.emit_error = emit_error
                 return child_gr.throw(SocketClosed())
 
-            self.on_data(on_data)
-            self.on_close(on_close)
+            def on_error(socker, e):
+                if self.emit_error != on_error:
+                    return
+
+                self.emit_data = emit_data
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.throw(e)
+
+            setattr(self, "emit_data", on_data)
+            setattr(self, "emit_close", on_close)
+            setattr(self, "emit_error", on_error)
             return main.switch()
 
-        def close(self):
+        async def closeof(self):
             if self._state == STATE_CLOSED:
                 return
 
-            child_gr = greenlet.getcurrent()
-            main = child_gr.parent
-            if main is None:
-                return BaseSocket.close(self)
-
-            async def do_close():
-                self.on_close(lambda socket: child_gr.switch())
-                return main.switch()
-            return do_close()
-
-
-    class Server(BaseServer):
-        async def accept(self):
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
+            self.on_close(lambda socket: child_gr.switch())
+            self.end()
+            return main.switch()
+
+
+    class Server(BaseServer):
+        async def accept(self):
+            assert self.emit_connection == null_emit_callback, "already accepting"
+
+            child_gr = greenlet.getcurrent()
+            main = child_gr.parent
+            assert main is not None, "must be running in async func"
+
+            emit_connection = self.emit_connection
+            emit_close = self.emit_close
+            emit_error = self.emit_error
+
             def on_connection(server, connection):
-                self.remove_listener("connection", on_connection)
-                self.remove_listener("close", on_close)
+                if self.emit_connection != on_connection:
+                    return
+
+                self.emit_connection = emit_connection
+                self.emit_close = emit_close
+                self.emit_error = emit_error
                 return child_gr.switch(connection)
 
             def on_close(socket):
+                if self.emit_close != on_close:
+                    return
+
+                self.emit_connection = emit_connection
+                self.emit_close = emit_close
+                self.emit_error = emit_error
                 return child_gr.throw(SocketClosed())
 
-            self.on_connection(on_connection)
-            self.on_close(on_close)
+            def on_error(socker, e):
+                if self.emit_error != on_error:
+                    return
+
+                self.emit_connection = emit_connection
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.throw(e)
+
+            setattr(self, "emit_connection", on_connection)
+            setattr(self, "emit_close", on_close)
+            setattr(self, "emit_error", on_error)
             return main.switch()
 
-        def close(self):
+        async def closeof(self):
             if self._state == STATE_CLOSED:
                 return
 
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
-            if main is None:
-                return BaseServer.close(self)
+            assert main is not None, "must be running in async func"
 
-            async def do_close():
-                self.on_close(lambda server: child_gr.switch())
-                return main.switch()
-            return do_close()
+            self.on_close(lambda server: child_gr.switch())
+            self.close()
+            return main.switch()
 
     return Socket, Server
