@@ -6,7 +6,7 @@ import logging
 import socket
 import errno
 from .utils import is_py3
-from .event import EventEmitter
+from .event import EventEmitter, null_emit_callback
 from .loop import instance, MODE_IN, MODE_OUT
 from .dns import DNSResolver
 from .buffer import Buffer, BaseBuffer, cbuffer, RECV_BUFFER_SIZE
@@ -183,7 +183,8 @@ class Socket(EventEmitter):
     def _error(self, error):
         self._loop.add_async(self.emit_error, self, error)
         self._loop.add_async(self.close)
-        logging.error("socket error: %s", error)
+        if self.emit_error == null_emit_callback:
+            logging.error("socket error: %s", error)
 
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):

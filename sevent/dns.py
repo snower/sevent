@@ -158,12 +158,14 @@ class DNSResolver(EventEmitter):
         self._socket = Socket(self._loop)
         self._socket.on_data(self.on_data)
         self._socket.on_close(self.on_close)
+        self._socket.on_error(lambda s, e: None)
 
     def create_socket6(self):
         from .udp import Socket
         self._socket6 = Socket(self._loop)
         self._socket6.on_data(self.on_data)
         self._socket6.on_close(self.on_close)
+        self._socket6.on_error(lambda s, e: None)
 
     def parse_resolv(self):
         servers = []
