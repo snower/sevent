@@ -10,13 +10,14 @@ The highest performance event loop.
 import sevent
 
 def on_data(s, data):
-    print(data)
+    print(data.decode("utf-8"))
+    s.close()
 
 s = sevent.tcp.Socket()
 s.on_data(on_data)
 s.on_close(lambda s: sevent.current().stop())
 s.connect(('www.google.com', 80))
-s.write(b'GET / HTTP/1.0\r\nHost: www.google.com\r\nConnection: Close\r\n\r\n')
+s.write(b'GET / HTTP/1.1\r\nHost: www.google.com\r\nUser-Agent: curl/7.58.0\r\nAccept: */*\r\n\r\n')
 
 sevent.instance().start()
 ```
@@ -27,9 +28,9 @@ import sevent
 async def http_test():
     s = sevent.tcp.Socket()
     await s.connectof(('www.google.com', 80))
-    await s.send(b'GET / HTTP/1.0\r\nHost: www.google.com\r\nConnection: Close\r\n\r\n')
+    await s.send(b'GET / HTTP/1.1\r\nHost: www.google.com\r\nUser-Agent: curl/7.58.0\r\nAccept: */*\r\n\r\n')
     data = await s.recv()
-    print(data)
+    print(data.decode("utf-8"))
     await s.closeof()
     
 sevent.run(http_test)
