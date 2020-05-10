@@ -2,6 +2,7 @@
 # 2020/5/10
 # create by: snower
 
+import logging
 import greenlet
 
 _PENDING = 'PENDING'
@@ -43,7 +44,10 @@ class Future(object):
 
         self._callbacks[:] = []
         for callback in callbacks:
-            callback(self)
+            try:
+                callback(self)
+            except Exception as e:
+                logging.exception("future schedule callback error:%s", e)
 
     def cancelled(self):
         return self._state == _CANCELLED

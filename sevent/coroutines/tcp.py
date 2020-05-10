@@ -68,6 +68,9 @@ def warp_coroutine(BaseSocket, BaseServer):
         async def send(self, data):
             assert self.emit_drain == null_emit_callback, "already sending"
 
+            if self._state == STATE_CLOSED:
+                raise SocketClosed()
+
             if self.write(data):
                 return
 
@@ -118,7 +121,10 @@ def warp_coroutine(BaseSocket, BaseServer):
         async def recv(self, size=0):
             assert self.emit_data == null_emit_callback, "already recving"
 
-            if size <= 0 and self._rbuffers:
+            if self._state == STATE_CLOSED:
+                raise SocketClosed()
+
+            if self._rbuffers and len(self._rbuffers) >= size:
                 return self._rbuffers
 
             child_gr = greenlet.getcurrent()
@@ -180,6 +186,9 @@ def warp_coroutine(BaseSocket, BaseServer):
     class Server(BaseServer):
         async def accept(self):
             assert self.emit_connection == null_emit_callback, "already accepting"
+
+            if self._state == STATE_CLOSED:
+                raise SocketClosed()
 
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
