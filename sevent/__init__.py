@@ -14,4 +14,4 @@ from .dns import DNSResolver
 from . import errors
 
 if sys.version_info[0] >= 3:
-    from .coroutines import run
+    from .coroutines import run, Future
