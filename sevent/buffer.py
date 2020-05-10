@@ -157,15 +157,33 @@ if cbuffer is None:
                 else:
                     self.write(data)
 
+        def head(self):
+            if not self._buffer_odata:
+                return self._buffer
+            return (self._buffer, self._buffer_odata)
+
+        def head_data(self):
+            return self._buffer_odata
+
+        def last(self):
+            if not self._buffers:
+                return self.head()
+
+            if not self._buffers_odata[-1]:
+                return self._buffers[-1]
+            return (self._buffers[-1], self._buffers_odata[-1])
+
+        def last_data(self):
+            if not self._buffers_odata:
+                return self.head_data()
+            return self._buffers_odata[-1]
+
         def __len__(self):
             return self._len
 
         def __str__(self):
             buffer = self.join()
-
-            if is_py3:
-                return ensure_unicode(buffer)
-            return (buffer, self._buffer_odata) if self._buffer_odata else buffer
+            return buffer.__str__()
 
         def __nonzero__(self):
             return self._len > 0
@@ -263,14 +281,57 @@ class Buffer(EventEmitter, BaseBuffer):
         self.read()
         self.remove_all_listeners()
 
+    def decode(self, *args, **kwargs):
+        data = self.join()
+        return data.decode(*args, **kwargs)
+
+    def items(self):
+        return self._buffers
+
+    def __getitem__(self, item):
+        data = self.join()
+        return data.__getitem__(item)
+
     def __iter__(self):
-        while True:
-            data = self.next()
-            if not data:
-                raise StopIteration()
-            yield data
+        data = self.join()
+        return iter(data)
 
     def __contains__(self, item):
-        buffer = self.join()
+        data = self.join()
 
-        return buffer.__contains__(item)
+        return data.__contains__(item)
+
+    def __add__(self, other):
+        data = self.join()
+        return data.__add__(other)
+
+    def __bytes__(self):
+        return self.join()
+
+    def __cmp__(self, other):
+        data = self.join()
+        return data.__cmp__(other)
+
+    def __eq__(self, other):
+        data = self.join()
+        return data == other
+
+    def __gt__(self, other):
+        data = self.join()
+        return data > other
+
+    def __lt__(self, other):
+        data = self.join()
+        return data < other
+
+    def __ge__(self, other):
+        data = self.join()
+        return data >= other
+
+    def __le__(self, other):
+        data = self.join()
+        return data <= other
+
+    def __ne__(self, other):
+        data = self.join()
+        return data != other

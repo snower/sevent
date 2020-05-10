@@ -214,7 +214,7 @@ class Socket(EventEmitter):
             while self._read_handler:
                 try:
                     data, address = self._socket.recvfrom(self.RECV_BUFFER_SIZE)
-                    BaseBuffer.write(self._wbuffers, data, address)
+                    BaseBuffer.write(self._rbuffers, data, address)
                 except socket.error as e:
                     if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                         break
@@ -268,12 +268,11 @@ class Socket(EventEmitter):
         def _write(self):
             while self._wbuffers:
                 data = self._wbuffers
-                address = self._wbuffers._buffer_odata
                 try:
                     if data._buffer_index > 0:
-                        r = self._socket.sendto(memoryview(data._buffer)[data._buffer_index:], address)
+                        r = self._socket.sendto(memoryview(data._buffer)[data._buffer_index:], data._buffer_odata)
                     else:
-                        r = self._socket.sendto(data._buffer, address)
+                        r = self._socket.sendto(data._buffer, data._buffer_odata)
                     data._buffer_index += r
                     data._len -= r
 
@@ -326,8 +325,7 @@ class Socket(EventEmitter):
         def do_write():
             if self._state not in (STATE_STREAMING, STATE_BINDING):
                 if self._state == STATE_INITIALIZED:
-                    _, address = self._wbuffers[0]
-                    self._connect(address, lambda address: do_write())
+                    self._connect(self._wbuffers.head_data(), lambda address: do_write())
                 return False
 
             if not self._write_handler:

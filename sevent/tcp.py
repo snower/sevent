@@ -355,7 +355,7 @@ class Socket(EventEmitter):
                     data = self._socket.recv(self.RECV_BUFFER_SIZE)
                     if not data:
                         break
-                    BaseBuffer.write(self._wbuffers, data)
+                    BaseBuffer.write(self._rbuffers, data)
                 except socket.error as e:
                     if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
                         break

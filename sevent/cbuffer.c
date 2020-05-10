@@ -659,6 +659,50 @@ Buffer_join(register BufferObject *objbuf, PyObject *args) {
     return data;
 }
 
+static PyObject*
+Buffer_head(register BufferObject *objbuf) {
+    if(Py_SIZE(objbuf) == 0) {
+        return PyBytes_FromStringAndSize(0, 0);
+    }
+
+    if(objbuf->buffer_head->odata != NULL) {
+        return PyTuple_Pack(2, (PyObject*)objbuf->buffer_head->buffer, objbuf->buffer_head->odata);
+    }
+    Py_INCREF(objbuf->buffer_head->buffer);
+    return (PyObject*)objbuf->buffer_head->buffer;
+}
+
+static PyObject*
+Buffer_head_data(register BufferObject *objbuf) {
+    if(Py_SIZE(objbuf) > 0 && objbuf->buffer_head->odata != NULL) {
+        Py_INCREF(objbuf->buffer_head->odata);
+        return (PyObject*)objbuf->buffer_head->odata;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject*
+Buffer_last(register BufferObject *objbuf) {
+    if(Py_SIZE(objbuf) == 0) {
+        return PyBytes_FromStringAndSize(0, 0);
+    }
+
+    if(objbuf->buffer_tail->odata != NULL) {
+        return PyTuple_Pack(2, (PyObject*)objbuf->buffer_tail->buffer, objbuf->buffer_tail->odata);
+    }
+    Py_INCREF(objbuf->buffer_tail->buffer);
+    return (PyObject*)objbuf->buffer_tail->buffer;
+}
+
+static PyObject*
+Buffer_last_data(register BufferObject *objbuf) {
+    if(Py_SIZE(objbuf) > 0 && objbuf->buffer_tail->odata != NULL) {
+        Py_INCREF(objbuf->buffer_tail->odata);
+        return (PyObject*)objbuf->buffer_tail->odata;
+    }
+    Py_RETURN_NONE;
+}
+
 static Py_ssize_t
 Buffer_length(register BufferObject *objbuf)
 {
@@ -1135,9 +1179,13 @@ static PyGetSetDef Buffer_getseters[] = {
 static PyMethodDef Buffer_methods[] = {
         {"write", (PyCFunction)Buffer_write, METH_VARARGS, "buffer write"},
         {"read", (PyCFunction)Buffer_read, METH_VARARGS, "buffer read"},
-        {"join", (PyCFunction)Buffer_join, METH_VARARGS, "buffer join"},
         {"next", (PyCFunction)Buffer_next, METH_VARARGS, "buffer next"},
         {"extend", (PyCFunction)Buffer_extend, METH_VARARGS, "buffer extend"},
+        {"join", (PyCFunction)Buffer_join, METH_VARARGS, "buffer join"},
+        {"head", (PyCFunction)Buffer_head, METH_VARARGS, "buffer head"},
+        {"head_data", (PyCFunction)Buffer_head_data, METH_VARARGS, "buffer head_data"},
+        {"last", (PyCFunction)Buffer_last, METH_VARARGS, "buffer last"},
+        {"last_data", (PyCFunction)Buffer_last_data, METH_VARARGS, "buffer last_data"},
         {"socket_send", (PyCFunction)Buffer_socket_send, METH_VARARGS, "buffer socket_send"},
         {"socket_recv", (PyCFunction)Buffer_socket_recv, METH_VARARGS, "buffer socket_recv"},
         {"socket_sendto", (PyCFunction)Buffer_socket_sendto, METH_VARARGS, "buffer socket_sendto"},
