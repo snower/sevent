@@ -268,7 +268,7 @@ class Socket(EventEmitter):
             try:
                 addrinfo = socket.getaddrinfo(ip, address[1], 0, 0, socket.SOL_TCP)
                 if not addrinfo:
-                    return  self._loop.add_async(self._error, AddressError('address info unknown %s' % str(address)))
+                    return self._loop.add_async(self._error, AddressError('address info unknown %s' % str(address)))
 
                 addr = addrinfo[0]
                 self._socket = socket.socket(addr[0], addr[1], addr[2])
@@ -420,7 +420,7 @@ class Socket(EventEmitter):
                 self.close()
 
     def _connect_and_write(self):
-        if self._wbuffers:
+        if self._wbuffers and self._address:
             def on_timeout_cb():
                 if self._state == STATE_CONNECTING:
                     if self._is_enable_fast_open:
@@ -432,7 +432,7 @@ class Socket(EventEmitter):
             self._connect_timeout_handler = self._loop.add_timeout(self._connect_timeout, on_timeout_cb)
 
             try:
-                self._wbuffers.read(self._socket.sendto(self._wbuffers.join(), MSG_FASTOPEN, self.address))
+                self._wbuffers.read(self._socket.sendto(self._wbuffers.join(), MSG_FASTOPEN, self._address))
                 self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
             except socket.error as e:
                 if e.args[0] == errno.EINPROGRESS:
