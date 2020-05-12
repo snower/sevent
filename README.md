@@ -44,8 +44,8 @@ import sevent
 
 def on_connection(server, conn):
     pconn = sevent.tcp.Socket()
-    conn.link(pconn)
     pconn.connect((sys.argv[2], int(sys.argv[3])))
+    conn.link(pconn)
 
 server = sevent.tcp.Server()
 server.on_connection(on_connection)
@@ -64,8 +64,8 @@ async def tcp_port_forward_server():
     while True:
         conn = await server.accept()
         pconn = sevent.tcp.Socket()
-        conn.link(pconn)
         pconn.connect((sys.argv[2], int(sys.argv[3])))
+        conn.link(pconn)
 
 sevent.run(tcp_port_forward_server)
 ```
