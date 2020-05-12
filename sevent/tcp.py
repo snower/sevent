@@ -544,39 +544,39 @@ class Socket(EventEmitter):
             if self._state != STATE_CONNECTING:
                 raise SocketClosed()
 
-            if self._is_enable_fast_open:
+            if self._is_enable_fast_open and rbuffer:
+                self.write(rbuffer)
+
+            def on_connect(s):
                 self._wbuffers.link(rbuffer)
-                if rbuffer: self.write(rbuffer)
+                if rbuffer:
+                    self.write(rbuffer)
                 socket.on_data(lambda s, data: self.write(data))
-            else:
-                def on_connect(s):
-                    self._wbuffers.link(rbuffer)
-                    if rbuffer: self.write(rbuffer)
-                    socket.on_data(lambda s, data: self.write(data))
-                self.on_connect(on_connect)
+            self.on_connect(on_connect)
 
         else:
             self._wbuffers.link(rbuffer)
-            if rbuffer: self.write(rbuffer)
+            if rbuffer:
+                self.write(rbuffer)
             socket.on_data(lambda s, data: self.write(data))
 
         if socket._state != STATE_STREAMING:
             if socket._state != STATE_CONNECTING:
                 raise SocketClosed()
 
-            if self._is_enable_fast_open:
+            if self._is_enable_fast_open and self._rbuffers:
+                socket.write(self._rbuffers)
+
+            def on_pconnect(s):
                 wbuffer.link(self._rbuffers)
-                if self._rbuffers: socket.write(self._rbuffers)
+                if self._rbuffers:
+                    socket.write(self._rbuffers)
                 self.on_data(lambda s, data: socket.write(data))
-            else:
-                def on_pconnect(s):
-                    wbuffer.link(self._rbuffers)
-                    if self._rbuffers: socket.write(self._rbuffers)
-                    self.on_data(lambda s, data: socket.write(data))
-                socket.on_connect(on_pconnect)
+            socket.on_connect(on_pconnect)
         else:
             wbuffer.link(self._rbuffers)
-            if self._rbuffers: socket.write(self._rbuffers)
+            if self._rbuffers:
+                socket.write(self._rbuffers)
             self.on_data(lambda s, data: socket.write(data))
 
         self.on_close(lambda s: socket.end())
