@@ -22,8 +22,8 @@ else:
 
 setup(
     name='sevent',
-    version='0.1.7',
-    packages=['sevent', 'sevent.impl'],
+    version='0.1.8',
+    packages=['sevent', 'sevent.impl', 'sevent.coroutines'],
     ext_modules=ext_modules,
     package_data={
         '': ['README.md'],
