@@ -110,7 +110,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
-    parser = argparse.ArgumentParser(description='simple http and socks5 proxy server')
+    parser = argparse.ArgumentParser(description="tcp port forward")
     parser.add_argument('-L', dest='forwards', default=[], action="append", type=str, help='forward host (example: 0.0.0.0:80:127.0.0.1:8088)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='timeout (default: 7200)')
     args = parser.parse_args()

@@ -140,7 +140,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
-    parser = argparse.ArgumentParser(description='simple http and socks5 proxy server')
+    parser = argparse.ArgumentParser(description='simple http and socks5 proxy forward to http or socks5 proxy')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='bind port (default: 8088)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='timeout (default: 7200)')
