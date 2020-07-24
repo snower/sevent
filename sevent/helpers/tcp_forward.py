@@ -8,6 +8,8 @@ import logging
 import argparse
 import sevent
 
+BYTES_MAP = {"B": 1, "K": 1024, "M": 1024*1024, "G": 1024*1024*1024, "T": 1024*1024*1024*1024}
+
 def format_data_len(date_len):
     if date_len < 1024:
         return "%dB" % date_len
@@ -15,10 +17,65 @@ def format_data_len(date_len):
         return "%.3fK" % (date_len/1024.0)
     elif date_len < 1024*1024*1024:
         return "%.3fM" % (date_len/(1024.0*1024.0))
+    elif date_len < 1024*1024*1024*1024:
+        return "%.3fG" % (date_len/(1024.0*1024.0*1024.0))
+    return "%.3fT" % (date_len/(1024.0*1024.0*1024.0*1024.0))
 
 def warp_write(conn, status, key):
     origin_write = conn.write
     def _(data):
+        status[key] += len(data)
+        return origin_write(data)
+    return _
+
+def warp_speed_limit_write(conn, status, key):
+    conn_id = id(conn)
+    origin_write = conn.write
+    origin_end = conn.end
+    speed_limiter = status["speed_limiter"]
+    status["is_end"] = False
+
+    def warp_end():
+        if conn_id not in speed_limiter.buffers:
+            return origin_end()
+        status["is_end"] = True
+    conn.end = warp_end
+
+    def speed_write(data):
+        if len(data) > speed_limiter.speed:
+            data = data.read(speed_limiter.speed)
+            status[key] += len(data)
+            try:
+                return origin_write(data)
+            except sevent.tcp.SocketClosed:
+                speed_limiter.buffers.pop(conn_id, None)
+                if status["is_end"]:
+                    status["is_end"] = False
+                    sevent.current().add_async(origin_end)
+                return False
+
+        speed_limiter.buffers.pop(conn_id, None)
+        if status["is_end"]:
+            status["is_end"] = False
+            sevent.current().add_async(origin_end)
+        if not data:
+            return True
+        status[key] += len(data)
+        try:
+            return origin_write(data)
+        except sevent.tcp.SocketClosed:
+            return False
+
+    def _(data):
+        if conn_id in speed_limiter.buffers:
+            return
+        speed_limiter.buffers[conn_id] = (data, speed_write)
+        if not speed_limiter.is_running:
+            speed_limiter.is_running = True
+            sevent.current().call_async(speed_limiter.loop)
+
+        if len(data) > speed_limiter.speed:
+            data = data.read(speed_limiter.speed)
         status[key] += len(data)
         return origin_write(data)
     return _
@@ -76,10 +133,10 @@ async def tcp_forward(conns, conn, forward_host, forward_port, status):
                  forward_host, forward_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]),
                  (time.time() - start_time) * 1000)
 
-async def tcp_forward_server(conns, server, forward_host, forward_port):
+async def tcp_forward_server(conns, server, forward_host, forward_port, speed_limiter):
     while True:
         conn = await server.accept()
-        status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
+        status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0, "speed_limiter": speed_limiter}
         sevent.current().call_async(tcp_forward, conns, conn, forward_host, forward_port, status)
         conns[id(conn)] = (conn, status)
 
@@ -100,10 +157,28 @@ async def check_timeout(conns, timeout):
         finally:
             await sevent.current().sleep(30)
 
-async def tcp_forward_servers(servers, timeout):
-    conns = {}
+class SpeedLimiter(object):
+    def __init__(self, speed):
+        self.speed = int(speed)
+        self.buffers = {}
+        self.is_running = False
+
+    async def loop(self):
+        try:
+            await sevent.current().sleep(0.05)
+            while self.buffers:
+                try:
+                    for _, (data, callback) in list(self.buffers.items()):
+                        sevent.current().add_async(callback, data)
+                finally:
+                    await sevent.current().sleep(0.05)
+        finally:
+            self.is_running = False
+
+async def tcp_forward_servers(servers, timeout, speed):
+    conns, speed_limiter = {}, (SpeedLimiter(speed) if speed else None)
     for server, (forward_host, forward_port) in servers:
-        sevent.current().call_async(tcp_forward_server, conns, server, forward_host, forward_port)
+        sevent.current().call_async(tcp_forward_server, conns, server, forward_host, forward_port, speed_limiter)
     await check_timeout(conns, timeout)
 
 if __name__ == '__main__':
@@ -113,12 +188,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="tcp port forward")
     parser.add_argument('-L', dest='forwards', default=[], action="append", type=str, help='forward host (example: 0.0.0.0:80:127.0.0.1:8088)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='timeout (default: 7200)')
+    parser.add_argument('-s', dest='speed', default=0, type=lambda v: (int(v[:-1]) * BYTES_MAP[v.upper()[-1]]) \
+        if v and v.upper()[-1] in BYTES_MAP else int(v), help='speed limit, example: 1024, 1M (default: 0 is unlimit)')
     args = parser.parse_args()
 
     if not args.forwards:
         exit(0)
 
     forwards = parse_forward(args.forwards)
+    if not forwards:
+        exit(0)
+
+    if args.speed:
+        warp_write = warp_speed_limit_write
+
     forward_servers = []
     for (bind, port, forward_host, forward_port) in forwards:
         server = sevent.tcp.Server()
@@ -127,4 +210,7 @@ if __name__ == '__main__':
         forward_servers.append((server, (forward_host, forward_port)))
         logging.info("port forward listen %s:%s to %s:%s", bind, port, forward_host, forward_port)
 
-    sevent.run(tcp_forward_servers, forward_servers, args.timeout)
+    try:
+        sevent.run(tcp_forward_servers, forward_servers, args.timeout, int(args.speed / 20.0))
+    except KeyboardInterrupt:
+        exit(0)

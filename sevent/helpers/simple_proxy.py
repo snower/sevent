@@ -17,6 +17,9 @@ def format_data_len(date_len):
         return "%.3fK" % (date_len/1024.0)
     elif date_len < 1024*1024*1024:
         return "%.3fM" % (date_len/(1024.0*1024.0))
+    elif date_len < 1024*1024*1024*1024:
+        return "%.3fG" % (date_len/(1024.0*1024.0*1024.0))
+    return "%.3fT" % (date_len/(1024.0*1024.0*1024.0*1024.0))
 
 def warp_write(conn, status, key):
     origin_write = conn.write
@@ -154,4 +157,7 @@ if __name__ == '__main__':
     server = sevent.tcp.Server()
     server.enable_reuseaddr()
     server.listen((args.bind, args.port))
-    sevent.run(tcp_accept, server, args.timeout)
+    try:
+        sevent.run(tcp_accept, server, args.timeout)
+    except KeyboardInterrupt:
+        exit(0)

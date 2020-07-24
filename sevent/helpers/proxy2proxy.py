@@ -152,4 +152,7 @@ if __name__ == '__main__':
     server.enable_reuseaddr()
     server.listen((args.bind, args.port))
     logging.info("listen server at %s:%d", args.bind, args.port)
-    sevent.run(tcp_accept, server, args)
+    try:
+        sevent.run(tcp_accept, server, args)
+    except KeyboardInterrupt:
+        exit(0)

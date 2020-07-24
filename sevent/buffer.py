@@ -290,7 +290,6 @@ class Buffer(EventEmitter, BaseBuffer):
         return self
 
     def close(self):
-        self.read()
         self.remove_all_listeners()
 
     def decode(self, *args, **kwargs):
