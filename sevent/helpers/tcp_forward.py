@@ -167,13 +167,16 @@ class SpeedLimiter(object):
 
     async def loop(self):
         try:
-            await sevent.current().sleep(0.05)
+            current_timestamp = time.time()
+            await sevent.current().sleep(0.2)
             while self.buffers:
                 try:
                     for _, (data, callback) in list(self.buffers.items()):
                         sevent.current().add_async(callback, data)
                 finally:
-                    await sevent.current().sleep(0.05)
+                    sleep_time = 0.4 - (time.time() - current_timestamp)
+                    current_timestamp += 0.2
+                    await sevent.current().sleep(sleep_time)
         finally:
             self.is_running = False
 
@@ -214,6 +217,6 @@ if __name__ == '__main__':
         logging.info("port forward listen %s:%s to %s:%s", bind, port, forward_host, forward_port)
 
     try:
-        sevent.run(tcp_forward_servers, forward_servers, args.timeout, int(args.speed / 20.0))
+        sevent.run(tcp_forward_servers, forward_servers, args.timeout, int(args.speed / 5))
     except KeyboardInterrupt:
         exit(0)
