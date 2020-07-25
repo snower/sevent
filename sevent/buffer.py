@@ -157,13 +157,24 @@ if cbuffer is None:
                 else:
                     self.write(data)
 
-        def fetch(self, size=-1):
-            return self.read(size)
+        def fetch(self, o, size=-1):
+            if not isinstance(o, BaseBuffer):
+                raise TypeError('not Buffer')
 
-        def copyfrom(self, size=-1):
+            data = o.read(size)
+            self.write(data)
+            return len(data)
+
+        def copyfrom(self, o, size=-1):
+            if not isinstance(o, BaseBuffer):
+                raise TypeError('not Buffer')
+
             if size < 0:
-                return self.join()
-            return self.join()[:size]
+                data = o.join()
+            else:
+                data = o.join()[:size]
+            self.write(data)
+            return len(data)
 
         def head(self):
             if not self._buffer_odata:
@@ -213,7 +224,7 @@ class Buffer(EventEmitter, BaseBuffer):
         self._loop = current()
         self._full = False
         self._drain_size = max_buffer_size or MAX_BUFFER_SIZE
-        self._regain_size = self._drain_size * 0.5
+        self._regain_size = self._drain_size * 0.7
         self._drain_time = time.time()
         self._regain_time = time.time()
 
@@ -264,7 +275,20 @@ class Buffer(EventEmitter, BaseBuffer):
 
         if self._len > self._drain_size and not self._full:
             self.do_drain()
-        return self
+
+        if o._full and o._len < o._regain_size:
+            o.do_regain()
+        return o
+
+    def fetch(self, o, size=-1):
+        r = BaseBuffer.fetch(self, o, size)
+
+        if self._len > self._drain_size and not self._full:
+            self.do_drain()
+
+        if o._full and o._len < o._regain_size:
+            o.do_regain()
+        return r
 
     def read(self, size=-1):
         data = BaseBuffer.read(self, size)

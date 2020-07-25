@@ -34,6 +34,7 @@ def warp_speed_limit_write(conn, status, key):
     origin_end = conn.end
     speed_limiter = status["speed_limiter"]
     status["is_end"] = False
+    buffer = sevent.buffer.Buffer()
 
     def warp_end():
         if conn_id not in speed_limiter.buffers:
@@ -43,10 +44,9 @@ def warp_speed_limit_write(conn, status, key):
 
     def speed_write(data):
         if len(data) > speed_limiter.speed:
-            data = data.read(speed_limiter.speed)
-            status[key] += len(data)
+            status[key] += buffer.fetch(data, speed_limiter.speed)
             try:
-                return origin_write(data)
+                return origin_write(buffer)
             except sevent.tcp.SocketClosed:
                 speed_limiter.buffers.pop(conn_id, None)
                 if status["is_end"]:
@@ -75,7 +75,9 @@ def warp_speed_limit_write(conn, status, key):
             sevent.current().call_async(speed_limiter.loop)
 
         if len(data) > speed_limiter.speed:
-            data = data.read(speed_limiter.speed)
+            status[key] += buffer.fetch(data, speed_limiter.speed)
+            return origin_write(buffer)
+
         status[key] += len(data)
         return origin_write(data)
     return _

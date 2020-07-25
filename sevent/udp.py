@@ -344,6 +344,8 @@ class Socket(EventEmitter):
 
         if data.__class__ == Buffer:
             BaseBuffer.extend(self._wbuffers, data)
+            if data._full and data._len < data._regain_size:
+                data.do_regain()
             return do_write()
 
         data, address = data

@@ -509,6 +509,8 @@ class Socket(EventEmitter):
             if self._state == STATE_CONNECTING:
                 if data.__class__ == Buffer:
                     BaseBuffer.extend(self._wbuffers, data)
+                    if data._full and data._len < data._regain_size:
+                        data.do_regain()
                 else:
                     BaseBuffer.write(self._wbuffers, data)
 
@@ -519,6 +521,8 @@ class Socket(EventEmitter):
 
         if data.__class__ == Buffer:
             BaseBuffer.extend(self._wbuffers, data)
+            if data._full and data._len < data._regain_size:
+                data.do_regain()
         else:
             BaseBuffer.write(self._wbuffers, data)
 
