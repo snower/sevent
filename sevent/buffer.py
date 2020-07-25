@@ -157,6 +157,14 @@ if cbuffer is None:
                 else:
                     self.write(data)
 
+        def fetch(self, size=-1):
+            return self.read(size)
+
+        def copyfrom(self, size=-1):
+            if size < 0:
+                return self.join()
+            return self.join()[:size]
+
         def head(self):
             if not self._buffer_odata:
                 return self._buffer

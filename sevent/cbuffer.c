@@ -641,6 +641,200 @@ Buffer_extend(register BufferObject *objbuf, PyObject *args) {
 }
 
 static PyObject *
+Buffer_fetch(register BufferObject *objbuf, PyObject *args) {
+    PyObject* data;
+    int size = -1;
+    if (!PyArg_ParseTuple(args, "O|i", &data, &size)) {
+        return NULL;
+    }
+
+    if (Py_TYPE(objbuf) != Py_TYPE(data)) {
+        PyErr_SetString(PyExc_TypeError, "The data must be a buffer");
+        return NULL;
+    }
+
+    BufferObject *databuf = (BufferObject*)data;
+    if (size == 0 || Py_SIZE(databuf) == 0 || objbuf == databuf) {
+        return PyInt_FromLong(0);
+    }
+
+    if(size < 0 || size > Py_SIZE(databuf)) {
+        size = Py_SIZE(databuf);
+    }
+
+    int fetch_size = 0;
+    BufferQueue* current_queue;
+    Py_ssize_t buffer_offset;
+    Py_ssize_t buf_size;
+    PyBytesObject* buffer;
+    while(Py_SIZE(databuf) > 0) {
+        buf_size = Py_SIZE(databuf->buffer_head->buffer) - databuf->buffer_offset;
+        if (fetch_size + buf_size <= size) {
+            current_queue = databuf->buffer_head;
+            buffer_offset = databuf->buffer_offset;
+            databuf->buffer_head = databuf->buffer_head->next;
+            databuf->buffer_offset = 0;
+            Py_SIZE(databuf) -= buf_size;
+            if(databuf->buffer_head == NULL) {
+                databuf->buffer_tail = NULL;
+            }
+        } else {
+            buf_size = size - fetch_size;
+            buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
+            if (buffer == NULL)
+                return PyErr_NoMemory();
+            memcpy(buffer->ob_sval, databuf->buffer_head->buffer->ob_sval + databuf->buffer_offset, buf_size);
+            databuf->buffer_offset += buf_size;
+            Py_SIZE(databuf) -= buf_size;
+
+            if (buffer_queue_fast_buffer_index > 0) {
+                current_queue = buffer_queue_fast_buffer[--buffer_queue_fast_buffer_index];
+            } else {
+                current_queue = (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue));
+                if (current_queue == NULL) {
+                    Py_DECREF(buffer);
+                    return PyErr_NoMemory();
+                }
+                current_queue->next = NULL;
+            }
+            current_queue->flag = 0x00;
+            current_queue->buffer = buffer;
+            if (databuf->buffer_head->odata != NULL) {
+                current_queue->odata = databuf->buffer_head->odata;
+                Py_INCREF(current_queue->odata);
+            } else {
+                current_queue->odata = NULL;
+            }
+            buffer_offset = 0;
+        }
+        
+        if (objbuf->buffer_head == NULL) {
+            objbuf->buffer_head = current_queue;
+            objbuf->buffer_tail = current_queue;
+            objbuf->buffer_offset = buffer_offset;
+        } else {
+            if (buffer_offset > 0) {
+                buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
+                if (buffer == NULL) {
+                    PyBytesObject_free(current_queue->buffer, current_queue);
+                    BufferQueue_free(current_queue);
+                    return PyErr_NoMemory();
+                }
+
+                memcpy(buffer->ob_sval, current_queue->buffer->ob_sval + buffer_offset, buf_size);
+                PyBytesObject_free(current_queue->buffer, current_queue);
+                current_queue->buffer = buffer;
+                current_queue->flag = 0x00;
+            }
+            objbuf->buffer_tail->next = current_queue;
+            objbuf->buffer_tail = current_queue;
+        }
+        Py_SIZE(objbuf) += buf_size;
+        fetch_size += buf_size;
+        if (fetch_size >= size) {
+            return PyInt_FromLong(fetch_size);
+        }
+    }
+
+    return PyInt_FromLong(fetch_size);
+}
+
+static PyObject *
+Buffer_copyfrom(register BufferObject *objbuf, PyObject *args) {
+    PyObject* data;
+    int size = -1;
+    if (!PyArg_ParseTuple(args, "O|i", &data, &size)) {
+        return NULL;
+    }
+
+    if (Py_TYPE(objbuf) != Py_TYPE(data)) {
+        PyErr_SetString(PyExc_TypeError, "The data must be a buffer");
+        return NULL;
+    }
+
+    BufferObject *databuf = (BufferObject*)data;
+    if (size == 0 || Py_SIZE(databuf) == 0 || objbuf == databuf) {
+        return PyInt_FromLong(0);
+    }
+
+    if(size < 0 || size > Py_SIZE(databuf)) {
+        size = Py_SIZE(databuf);
+    }
+
+    int copy_size = 0;
+    BufferQueue* copy_queue;
+    Py_ssize_t buf_size;
+    PyBytesObject* buffer;
+    
+    BufferQueue* current_queue = databuf->buffer_head;
+    Py_ssize_t buffer_offset = databuf->buffer_offset;
+    while(current_queue != NULL) {
+        buf_size = Py_SIZE(current_queue->buffer) - buffer_offset;
+        if (copy_size + buf_size <= size) {
+            buffer = current_queue->buffer;
+            Py_INCREF(current_queue->buffer);
+        } else {
+            buf_size = size - copy_size;
+            buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
+            if (buffer == NULL)
+                return PyErr_NoMemory();
+            memcpy(buffer->ob_sval, current_queue->buffer->ob_sval + buffer_offset, buf_size);
+            buffer_offset = 0;
+        }
+
+        if (buffer_queue_fast_buffer_index > 0) {
+            copy_queue = buffer_queue_fast_buffer[--buffer_queue_fast_buffer_index];
+        } else {
+            copy_queue = (BufferQueue*)PyMem_Malloc(sizeof(BufferQueue));
+            if (copy_queue == NULL) {
+                Py_DECREF(buffer);
+                return PyErr_NoMemory();
+            }
+            copy_queue->next = NULL;
+        }
+        copy_queue->flag = 0x00;
+        copy_queue->buffer = buffer;
+        if (current_queue->odata != NULL) {
+            copy_queue->odata = current_queue->odata;
+            Py_INCREF(copy_queue->odata);
+        } else {
+            copy_queue->odata = NULL;
+        }
+        
+        if (objbuf->buffer_head == NULL) {
+            objbuf->buffer_head = copy_queue;
+            objbuf->buffer_tail = copy_queue;
+            objbuf->buffer_offset = buffer_offset;
+        } else {
+            if (buffer_offset > 0) {
+                buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
+                if (buffer == NULL) {
+                    Py_DECREF(buffer);
+                    BufferQueue_free(copy_queue);
+                    return PyErr_NoMemory();
+                }
+
+                memcpy(buffer->ob_sval, copy_queue->buffer->ob_sval + buffer_offset, buf_size);
+                Py_DECREF(copy_queue->buffer);
+                copy_queue->buffer = buffer;
+            }
+            objbuf->buffer_tail->next = copy_queue;
+            objbuf->buffer_tail = copy_queue;
+        }
+        Py_SIZE(objbuf) += buf_size;
+        current_queue->flag = 0x00;
+        current_queue = current_queue->next;
+        buffer_offset = 0;
+        copy_size += buf_size;
+        if (copy_size >= size) {
+            return PyInt_FromLong(copy_size);
+        }
+    }
+
+    return PyInt_FromLong(copy_size);
+}
+
+static PyObject *
 Buffer_join(register BufferObject *objbuf, PyObject *args) {
     if(Py_SIZE(objbuf) == 0) {
         return PyBytes_FromStringAndSize(0, 0);
@@ -1181,6 +1375,8 @@ static PyMethodDef Buffer_methods[] = {
         {"read", (PyCFunction)Buffer_read, METH_VARARGS, "buffer read"},
         {"next", (PyCFunction)Buffer_next, METH_VARARGS, "buffer next"},
         {"extend", (PyCFunction)Buffer_extend, METH_VARARGS, "buffer extend"},
+        {"fetch", (PyCFunction)Buffer_fetch, METH_VARARGS, "buffer fetch"},
+        {"copyfrom", (PyCFunction)Buffer_copyfrom, METH_VARARGS, "buffer copyfrom"},
         {"join", (PyCFunction)Buffer_join, METH_VARARGS, "buffer join"},
         {"head", (PyCFunction)Buffer_head, METH_VARARGS, "buffer head"},
         {"head_data", (PyCFunction)Buffer_head_data, METH_VARARGS, "buffer head_data"},
