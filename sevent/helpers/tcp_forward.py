@@ -54,12 +54,13 @@ def warp_speed_limit_write(conn, status, key):
                     sevent.current().add_async(origin_end)
                 return False
 
-        speed_limiter.buffers.pop(conn_id, None)
-        if status["is_end"]:
-            status["is_end"] = False
-            sevent.current().add_async(origin_end)
         if not data:
+            speed_limiter.buffers.pop(conn_id, None)
+            if status["is_end"]:
+                status["is_end"] = False
+                sevent.current().add_async(origin_end)
             return True
+
         status[key] += len(data)
         try:
             return origin_write(data)
@@ -115,7 +116,9 @@ async def tcp_forward(conns, conn, forward_host, forward_port, status):
     conn.write, pconn = warp_write(conn, status, "recv_len"), None
 
     try:
+        conn.enable_nodelay()
         pconn = sevent.tcp.Socket()
+        pconn.enable_nodelay()
         await pconn.connectof((forward_host, forward_port))
         pconn.write = warp_write(pconn, status, "send_len")
         logging.info("http proxy connect %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_host, forward_port)
@@ -168,14 +171,15 @@ class SpeedLimiter(object):
     async def loop(self):
         try:
             current_timestamp = time.time()
-            await sevent.current().sleep(0.2)
+            await sevent.current().sleep(0.1)
             while self.buffers:
                 try:
                     for _, (data, callback) in list(self.buffers.items()):
                         sevent.current().add_async(callback, data)
                 finally:
-                    sleep_time = 0.4 - (time.time() - current_timestamp)
-                    current_timestamp += 0.2
+                    now = time.time()
+                    sleep_time = 0.2 - (now - current_timestamp)
+                    current_timestamp = now
                     await sevent.current().sleep(sleep_time)
         finally:
             self.is_running = False
@@ -217,6 +221,6 @@ if __name__ == '__main__':
         logging.info("port forward listen %s:%s to %s:%s", bind, port, forward_host, forward_port)
 
     try:
-        sevent.run(tcp_forward_servers, forward_servers, args.timeout, int(args.speed / 5))
+        sevent.run(tcp_forward_servers, forward_servers, args.timeout, int(args.speed / 10))
     except KeyboardInterrupt:
         exit(0)

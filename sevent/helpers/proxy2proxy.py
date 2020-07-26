@@ -14,6 +14,7 @@ async def socks5_proxy(proxy_host, proxy_port, remote_host, remote_port):
     pconn = None
     try:
         pconn = sevent.tcp.Socket()
+        pconn.enable_nodelay()
         await pconn.connectof((proxy_host, proxy_port))
         await pconn.send(b"\x05\x01\x00")
         buffer = await pconn.recv()
@@ -41,6 +42,7 @@ async def http_proxy(proxy_host, proxy_port, remote_host, remote_port):
     pconn = None
     try:
         pconn = sevent.tcp.Socket()
+        pconn.enable_nodelay()
         await pconn.connectof((proxy_host, proxy_port))
 
         protocol_data = http_build_protocol(remote_host, remote_port)
@@ -62,6 +64,7 @@ async def tcp_proxy(conns, conn, proxy_type, proxy_host, proxy_port, status):
     host, port, protocol = '', 0, ''
     conn.write, pconn = warp_write(conn, status, "recv_len"), None
     try:
+        conn.enable_nodelay()
         buffer = await conn.recv()
         if buffer[0] == 5:
             protocol = 'socks5'

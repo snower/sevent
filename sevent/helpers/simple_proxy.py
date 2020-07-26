@@ -85,6 +85,7 @@ async def tcp_proxy(conns, conn, status):
     host, port, protocol = '', 0, ''
     conn.write, pconn = warp_write(conn, status, "recv_len"), None
     try:
+        conn.enable_nodelay()
         buffer = await conn.recv()
         if buffer[0] == 5:
             protocol = 'socks5'
@@ -98,6 +99,7 @@ async def tcp_proxy(conns, conn, status):
 
         logging.info("connect %s %s:%d", protocol, host, port)
         pconn = sevent.tcp.Socket()
+        pconn.enable_nodelay()
         pconn.write = warp_write(pconn, status, "send_len")
         await pconn.connectof((host, port))
         if data:
