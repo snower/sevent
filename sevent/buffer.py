@@ -176,6 +176,15 @@ if cbuffer is None:
             self.write(data)
             return len(data)
 
+        def clear(self):
+            self._buffer = b''
+            self._buffer_odata = None
+            self._buffer_len = 0
+            self._buffers = deque()
+            self._buffers_odata = deque()
+            self._len = 0
+            self._buffer_index = 0
+
         def head(self):
             if not self._buffer_odata:
                 return self._buffer
@@ -303,6 +312,12 @@ class Buffer(EventEmitter, BaseBuffer):
         if self._full and self._len < self._regain_size:
             self.do_regain()
         return data
+
+    def clear(self):
+        BaseBuffer.clear(self)
+
+        if self._full and self._len < self._regain_size:
+            self.do_regain()
 
     def link(self, o):
         def do_drain(b):

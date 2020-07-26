@@ -545,7 +545,7 @@ Buffer_read(register BufferObject *objbuf, PyObject *args)
 }
 
 static PyObject *
-Buffer_next(register BufferObject *objbuf, PyObject *args) {
+Buffer_next(register BufferObject *objbuf) {
     if(Py_SIZE(objbuf) == 0) {
         return PyBytes_FromStringAndSize(0, 0);
     }
@@ -596,18 +596,12 @@ Buffer_next(register BufferObject *objbuf, PyObject *args) {
 }
 
 static PyObject *
-Buffer_extend(register BufferObject *objbuf, PyObject *args) {
-    PyObject* data;
-    if (!PyArg_ParseTuple(args, "O", &data)) {
-        return NULL;
-    }
-
-    if (Py_TYPE(objbuf) != Py_TYPE(data)) {
+Buffer_extend(register BufferObject *objbuf, register BufferObject *databuf) {
+    if (Py_TYPE(objbuf) != Py_TYPE(databuf)) {
         PyErr_SetString(PyExc_TypeError, "The data must be a buffer");
         return NULL;
     }
 
-    BufferObject *databuf = (BufferObject*)data;
     if (Py_SIZE(databuf) == 0 || objbuf == databuf) {
         Py_RETURN_NONE;
     }
@@ -835,7 +829,7 @@ Buffer_copyfrom(register BufferObject *objbuf, PyObject *args) {
 }
 
 static PyObject *
-Buffer_join(register BufferObject *objbuf, PyObject *args) {
+Buffer_join(register BufferObject *objbuf) {
     if(Py_SIZE(objbuf) == 0) {
         return PyBytes_FromStringAndSize(0, 0);
     }
@@ -851,6 +845,33 @@ Buffer_join(register BufferObject *objbuf, PyObject *args) {
     }
     Py_INCREF(data);
     return data;
+}
+
+static PyObject *
+Buffer_clear(register BufferObject *objbuf) {
+    if (Py_SIZE(objbuf) == 0) {
+        Py_RETURN_NONE;
+    }
+
+    BufferQueue* last_queue;
+    if(objbuf->buffer_offset > 0 && objbuf->buffer_head != NULL) {
+        objbuf->buffer_offset = 0;
+        last_queue = objbuf->buffer_head;
+        objbuf->buffer_head = objbuf->buffer_head->next;
+        PyBytesObject_free(last_queue->buffer, last_queue);
+        BufferQueue_free(last_queue);
+    }
+
+    while(objbuf->buffer_head != NULL) {
+        last_queue = objbuf->buffer_head;
+        objbuf->buffer_head = objbuf->buffer_head->next;
+        PyBytesObject_free(last_queue->buffer, last_queue);
+        BufferQueue_free(last_queue);
+    }
+
+    Py_SIZE(objbuf) = 0;
+    objbuf->buffer_tail = NULL;
+    Py_RETURN_NONE;
 }
 
 static PyObject*
@@ -1373,15 +1394,16 @@ static PyGetSetDef Buffer_getseters[] = {
 static PyMethodDef Buffer_methods[] = {
         {"write", (PyCFunction)Buffer_write, METH_VARARGS, "buffer write"},
         {"read", (PyCFunction)Buffer_read, METH_VARARGS, "buffer read"},
-        {"next", (PyCFunction)Buffer_next, METH_VARARGS, "buffer next"},
-        {"extend", (PyCFunction)Buffer_extend, METH_VARARGS, "buffer extend"},
+        {"next", (PyCFunction)Buffer_next, METH_NOARGS, "buffer next"},
+        {"extend", (PyCFunction)Buffer_extend, METH_O, "buffer extend"},
         {"fetch", (PyCFunction)Buffer_fetch, METH_VARARGS, "buffer fetch"},
         {"copyfrom", (PyCFunction)Buffer_copyfrom, METH_VARARGS, "buffer copyfrom"},
-        {"join", (PyCFunction)Buffer_join, METH_VARARGS, "buffer join"},
-        {"head", (PyCFunction)Buffer_head, METH_VARARGS, "buffer head"},
-        {"head_data", (PyCFunction)Buffer_head_data, METH_VARARGS, "buffer head_data"},
-        {"last", (PyCFunction)Buffer_last, METH_VARARGS, "buffer last"},
-        {"last_data", (PyCFunction)Buffer_last_data, METH_VARARGS, "buffer last_data"},
+        {"join", (PyCFunction)Buffer_join, METH_NOARGS, "buffer join"},
+        {"clear", (PyCFunction)Buffer_clear, METH_NOARGS, "buffer clear"},
+        {"head", (PyCFunction)Buffer_head, METH_NOARGS, "buffer head"},
+        {"head_data", (PyCFunction)Buffer_head_data, METH_NOARGS, "buffer head_data"},
+        {"last", (PyCFunction)Buffer_last, METH_NOARGS, "buffer last"},
+        {"last_data", (PyCFunction)Buffer_last_data, METH_NOARGS, "buffer last_data"},
         {"socket_send", (PyCFunction)Buffer_socket_send, METH_VARARGS, "buffer socket_send"},
         {"socket_recv", (PyCFunction)Buffer_socket_recv, METH_VARARGS, "buffer socket_recv"},
         {"socket_sendto", (PyCFunction)Buffer_socket_sendto, METH_VARARGS, "buffer socket_sendto"},
