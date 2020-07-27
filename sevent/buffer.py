@@ -21,6 +21,11 @@ except:
     MAX_BUFFER_SIZE = 4 * 1024 * 1024
 
 try:
+    BUFFER_DRAIN_RATE = max(min(float(os.environ.get("SEVENT_BUFFER_DRAIN_RATE", 0.5)), 0.1), 0.9)
+except:
+    BUFFER_DRAIN_RATE = 0.5
+
+try:
     RECV_COUNT = int(os.environ.get("SEVENT_RECV_COUNT", 0))
 except:
     RECV_COUNT = 0
@@ -232,8 +237,8 @@ class Buffer(EventEmitter, BaseBuffer):
 
         self._loop = current()
         self._full = False
-        self._drain_size = max_buffer_size or MAX_BUFFER_SIZE
-        self._regain_size = self._drain_size * 0.7
+        self._drain_size = int(max_buffer_size or MAX_BUFFER_SIZE)
+        self._regain_size = int(self._drain_size * BUFFER_DRAIN_RATE)
         self._drain_time = time.time()
         self._regain_time = time.time()
 
