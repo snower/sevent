@@ -117,13 +117,13 @@ async def http_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_po
             return
         buffer.read()
         pconn.write = warp_write(pconn, status, "send_len")
-        logging.info("http proxy connect %s:%d -> %s:%d -> %s:%d", conn.address[0], conn.address[1], proxy_host, proxy_port,
+        logging.info("tcp2proxy connect %s:%d -> %s:%d -> %s:%d", conn.address[0], conn.address[1], proxy_host, proxy_port,
                      remote_host, remote_port)
         await pconn.linkof(conn)
     except sevent.errors.SocketClosed:
         pass
     except Exception as e:
-        logging.info("http proxy error %s:%d -> %s:%d -> %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1], proxy_host, proxy_port,
+        logging.info("tcp2proxy error %s:%d -> %s:%d -> %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1], proxy_host, proxy_port,
                      remote_host, remote_port, e, (time.time() - start_time) * 1000, traceback.format_exc())
         return
     finally:
@@ -131,7 +131,7 @@ async def http_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_po
         if pconn: pconn.close()
         conns.pop(id(conn), None)
 
-    logging.info("http proxy connected %s:%d -> %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], proxy_host, proxy_port,
+    logging.info("tcp2proxy connected %s:%d -> %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], proxy_host, proxy_port,
                  remote_host, remote_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]),
                  (time.time() - start_time) * 1000)
 

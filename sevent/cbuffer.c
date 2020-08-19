@@ -691,14 +691,13 @@ Buffer_fetch(register BufferObject *objbuf, PyObject *args) {
                     return PyErr_NoMemory();
                 }
                 current_queue->next = NULL;
+                current_queue->odata = NULL;
             }
             current_queue->flag = 0x00;
             current_queue->buffer = buffer;
             if (databuf->buffer_head->odata != NULL) {
                 current_queue->odata = databuf->buffer_head->odata;
                 Py_INCREF(current_queue->odata);
-            } else {
-                current_queue->odata = NULL;
             }
             buffer_offset = 0;
         }

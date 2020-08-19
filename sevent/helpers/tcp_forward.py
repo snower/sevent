@@ -121,12 +121,12 @@ async def tcp_forward(conns, conn, forward_host, forward_port, status):
         pconn.enable_nodelay()
         await pconn.connectof((forward_host, forward_port))
         pconn.write = warp_write(pconn, status, "send_len")
-        logging.info("http proxy connect %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_host, forward_port)
+        logging.info("tcp forward connect %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_host, forward_port)
         await pconn.linkof(conn)
     except sevent.errors.SocketClosed:
         pass
     except Exception as e:
-        logging.info("http proxy error %s:%d -> %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1],
+        logging.info("tcp forward error %s:%d -> %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1],
                      forward_host, forward_port, e, (time.time() - start_time) * 1000, traceback.format_exc())
         return
     finally:
@@ -134,7 +134,7 @@ async def tcp_forward(conns, conn, forward_host, forward_port, status):
         if pconn: pconn.close()
         conns.pop(id(conn), None)
 
-    logging.info("http proxy connected %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1],
+    logging.info("tcp forward connected %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1],
                  forward_host, forward_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]),
                  (time.time() - start_time) * 1000)
 
