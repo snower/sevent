@@ -672,6 +672,7 @@ Buffer_fetch(register BufferObject *objbuf, PyObject *args) {
             if(databuf->buffer_head == NULL) {
                 databuf->buffer_tail = NULL;
             }
+            current_queue->next = NULL;
         } else {
             buf_size = size - fetch_size;
             buffer = (PyBytesObject*)PyBytes_FromStringAndSize(0, buf_size);
