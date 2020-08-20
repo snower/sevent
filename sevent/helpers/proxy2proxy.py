@@ -146,7 +146,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple http and socks5 proxy forward to http or socks5 uplink proxy')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
-    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='timeout (default: 7200)')
+    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
     parser.add_argument('-T', dest='proxy_type', default="http", choices=("http", "socks5"), help='proxy type (default: http)')
     parser.add_argument('-P', dest='proxy_host', default="127.0.0.1:8088", help='proxy host, accept format [proxy_host:proxy_port]  (default: 127.0.0.1:8088)')
     args = parser.parse_args()

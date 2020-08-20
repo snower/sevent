@@ -292,14 +292,14 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="tcp port forward")
     parser.add_argument('-L', dest='forwards', default=[], action="append", type=str,
-                        help='forward host, accept format [[local_bind:]local_port:remote_host:remote_port], support muiti forward args (example: 0.0.0.0:80:127.0.0.1:8088)')
-    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='timeout (default: 7200)')
+                        help='forward host, accept format [[local_bind:]local_port:remote_host:remote_port], support muiti forward args (example: 0.0.0.0:80:127.0.0.1:8088 or 80:127.0.0.1:8088)')
+    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
     parser.add_argument('-s', dest='speed', default=0, type=lambda v: int(float(v[:-1]) * BYTES_MAP[v.upper()[-1]]) \
-        if v and v.upper()[-1] in BYTES_MAP else int(float(v)), help='per connection speed limit byte, example: 1024, 1M (default: 0 is unlimit)')
+        if v and v.upper()[-1] in BYTES_MAP else int(float(v)), help='per connection speed limit byte, example: 1024 or 1M (default: 0 is unlimit), available units : B K M G T')
     parser.add_argument('-S', dest='global_speed', default=0, type=lambda v: int(float(v[:-1]) * BYTES_MAP[v.upper()[-1]]) \
-        if v and v.upper()[-1] in BYTES_MAP else int(float(v)), help='global speed limit byte, example: 1024, 1M (default: 0 is unlimit)')
+        if v and v.upper()[-1] in BYTES_MAP else int(float(v)), help='global speed limit byte, example: 1024 or 1M (default: 0 is unlimit), available units : B K M G T')
     parser.add_argument('-d', dest='delay', default=0, type=lambda v: (float(v.split("-")[0]), float(v.split("-")[-1])) \
-        if v and isinstance(v, str) and "-" in v else float(v), help='delay millisecond (default: 0 is not delay)')
+        if v and isinstance(v, str) and "-" in v else float(v), help='delay millisecond (default: 0 is not delay, example -d100 or -d100-200), the - between two numbers will be random delay')
     args = parser.parse_args()
 
     if not args.forwards:

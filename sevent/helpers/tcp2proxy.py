@@ -190,7 +190,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='forword tcp port to remote host from http or socks5 proxy')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
-    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='timeout (default: 7200)')
+    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
     parser.add_argument('-T', dest='proxy_type', default="http", choices=("http", "socks5"), help='proxy type (default: http)')
     parser.add_argument('-P', dest='proxy_host', default="127.0.0.1:8088", help='proxy host, accept format [proxy_host:proxy_port] (default: 127.0.0.1:8088)')
     parser.add_argument('-f', dest='forward_host', default="127.0.0.1:80", help='remote forward host , accept format [remote_host:remote_port] (default: 127.0.0.1:80)')

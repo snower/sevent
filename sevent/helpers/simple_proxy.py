@@ -152,7 +152,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple http and socks5 proxy server')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
-    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='timeout (default: 7200)')
+    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
     args = parser.parse_args()
 
     logging.info("listen server at %s:%d", args.bind, args.port)
