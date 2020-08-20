@@ -76,7 +76,7 @@ async def tcp_proxy(conns, conn, proxy_type, proxy_host, proxy_port, status):
             logging.info("empty address")
             return
 
-        logging.info("connect %s %s:%d -> %s %s:%d -> %s:%d", protocol, conn.address[0], conn.address[1],
+        logging.info("connected %s %s:%d -> %s %s:%d -> %s:%d", protocol, conn.address[0], conn.address[1],
                      proxy_type, proxy_host, proxy_port, host, port)
         if proxy_type == "http":
             pconn = await http_proxy(proxy_host, proxy_port, host, port)
@@ -99,7 +99,7 @@ async def tcp_proxy(conns, conn, proxy_type, proxy_host, proxy_port, status):
         if pconn: pconn.close()
         conns.pop(id(conn), None)
 
-    logging.info("connected %s %s:%d -> %s %s:%d -> %s:%d %s %s %.2fms", protocol, conn.address[0], conn.address[1],
+    logging.info("closed %s %s:%d -> %s %s:%d -> %s:%d %s %s %.2fms", protocol, conn.address[0], conn.address[1],
                  proxy_type, proxy_host, proxy_port, host, port, format_data_len(status["send_len"]),
                  format_data_len(status["recv_len"]), (time.time() - start_time) * 1000)
 

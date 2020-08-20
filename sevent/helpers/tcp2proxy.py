@@ -78,7 +78,7 @@ async def socks5_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_
             logging.info("protocol error")
             return
         pconn.write = warp_write(pconn, status, "send_len")
-        logging.info("socks5 proxy connect %s:%d -> %s:%d -> %s:%d", conn.address[0], conn.address[1], proxy_host, proxy_port,
+        logging.info("socks5 proxy connected %s:%d -> %s:%d -> %s:%d", conn.address[0], conn.address[1], proxy_host, proxy_port,
                      remote_host, remote_port)
         await pconn.linkof(conn)
     except sevent.errors.SocketClosed:
@@ -92,7 +92,7 @@ async def socks5_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_
         if pconn: pconn.close()
         conns.pop(id(conn), None)
 
-    logging.info("socks5 proxy connected %s:%d -> %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], proxy_host, proxy_port,
+    logging.info("socks5 proxy closed %s:%d -> %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], proxy_host, proxy_port,
                  remote_host, remote_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]), (time.time() - start_time) * 1000)
 
 def http_build_protocol(remote_host, remote_port):
@@ -117,7 +117,7 @@ async def http_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_po
             return
         buffer.read()
         pconn.write = warp_write(pconn, status, "send_len")
-        logging.info("tcp2proxy connect %s:%d -> %s:%d -> %s:%d", conn.address[0], conn.address[1], proxy_host, proxy_port,
+        logging.info("tcp2proxy connected %s:%d -> %s:%d -> %s:%d", conn.address[0], conn.address[1], proxy_host, proxy_port,
                      remote_host, remote_port)
         await pconn.linkof(conn)
     except sevent.errors.SocketClosed:
@@ -131,7 +131,7 @@ async def http_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_po
         if pconn: pconn.close()
         conns.pop(id(conn), None)
 
-    logging.info("tcp2proxy connected %s:%d -> %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], proxy_host, proxy_port,
+    logging.info("tcp2proxy closed %s:%d -> %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], proxy_host, proxy_port,
                  remote_host, remote_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]),
                  (time.time() - start_time) * 1000)
 

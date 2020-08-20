@@ -97,7 +97,7 @@ async def tcp_proxy(conns, conn, status):
             logging.info("empty address")
             return
 
-        logging.info("connect %s %s:%d", protocol, host, port)
+        logging.info("connected %s %s:%d", protocol, host, port)
         pconn = sevent.tcp.Socket()
         pconn.enable_nodelay()
         pconn.write = warp_write(pconn, status, "send_len")
@@ -116,7 +116,7 @@ async def tcp_proxy(conns, conn, status):
         if pconn: pconn.close()
         conns.pop(id(conn), None)
 
-    logging.info("connected %s %s:%d %s %s %.2fms", protocol, host, port, format_data_len(status["send_len"]),
+    logging.info("closed %s %s:%d %s %s %.2fms", protocol, host, port, format_data_len(status["send_len"]),
                  format_data_len(status["recv_len"]), (time.time() - start_time) * 1000)
 
 async def check_timeout(conns, timeout):

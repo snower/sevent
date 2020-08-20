@@ -3,6 +3,7 @@
 # create by: snower
 
 import time
+import random
 import traceback
 import logging
 import argparse
@@ -111,7 +112,11 @@ def warp_delay_write(delayer, warp_write_func):
                 return False
 
         def __(data):
-            delayer.queues.append((time.time() + delayer.delay, data.read(), delay_write))
+            if delayer.delay:
+                delayer.queues.append((time.time() + delayer.delay, data.read(), delay_write))
+            else:
+                delayer.queues.append((time.time() + random.randint(*delayer.rdelays) / 1000000.0,
+                                       data.read(), delay_write))
             if delayer.is_running:
                 return
             delayer.is_running = True
@@ -157,7 +162,7 @@ async def tcp_forward(conns, conn, forward_host, forward_port, status):
         pconn.enable_nodelay()
         await pconn.connectof((forward_host, forward_port))
         pconn.write = warp_write(pconn, status, "send_len")
-        logging.info("tcp forward connect %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_host, forward_port)
+        logging.info("tcp forward connected %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_host, forward_port)
         await pconn.linkof(conn)
     except sevent.errors.SocketClosed:
         pass
@@ -170,7 +175,7 @@ async def tcp_forward(conns, conn, forward_host, forward_port, status):
         if pconn: pconn.close()
         conns.pop(id(conn), None)
 
-    logging.info("tcp forward connected %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1],
+    logging.info("tcp forward closed %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1],
                  forward_host, forward_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]),
                  (time.time() - start_time) * 1000)
 
@@ -199,8 +204,9 @@ async def check_timeout(conns, timeout):
             await sevent.current().sleep(30)
 
 class Delayer(object):
-    def __init__(self, delay):
+    def __init__(self, delay, rdelays):
         self.delay = delay
+        self.rdelays = rdelays
         self.is_running = False
         self.queues = deque()
 
@@ -292,7 +298,8 @@ if __name__ == '__main__':
         if v and v.upper()[-1] in BYTES_MAP else int(float(v)), help='per connection speed limit byte, example: 1024, 1M (default: 0 is unlimit)')
     parser.add_argument('-S', dest='global_speed', default=0, type=lambda v: int(float(v[:-1]) * BYTES_MAP[v.upper()[-1]]) \
         if v and v.upper()[-1] in BYTES_MAP else int(float(v)), help='global speed limit byte, example: 1024, 1M (default: 0 is unlimit)')
-    parser.add_argument('-d', dest='delay', default=0, type=float, help='delay millisecond (default: 0 is not delay)')
+    parser.add_argument('-d', dest='delay', default=0, type=lambda v: (float(v.split("-")[0]), float(v.split("-")[-1])) \
+        if v and isinstance(v, str) and "-" in v else float(v), help='delay millisecond (default: 0 is not delay)')
     args = parser.parse_args()
 
     if not args.forwards:
@@ -303,8 +310,9 @@ if __name__ == '__main__':
         exit(0)
 
     if args.delay:
-        warp_write = warp_delay_write(Delayer(float(args.delay) / 1000.0),
-                                      warp_speed_limit_write if args.speed or args.global_speed else warp_write)
+        warp_write = warp_delay_write(Delayer(0 if isinstance(args.delay, tuple) else float(args.delay) / 1000.0,
+                                    (int(args.delay[0] * 1000), int(args.delay[1] * 1000)) if isinstance(args.delay, tuple) else None),
+                                    warp_speed_limit_write if args.speed or args.global_speed else warp_write)
     elif args.speed or args.global_speed:
         warp_write = warp_speed_limit_write
 
