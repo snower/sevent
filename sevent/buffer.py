@@ -287,21 +287,21 @@ class Buffer(EventEmitter, BaseBuffer):
     def extend(self, o):
         BaseBuffer.extend(self, o)
 
-        if self._len > self._drain_size and not self._full:
-            self.do_drain()
-
         if o._full and o._len < o._regain_size:
             o.do_regain()
+
+        if self._len > self._drain_size and not self._full:
+            self.do_drain()
         return o
 
     def fetch(self, o, size=-1):
         r = BaseBuffer.fetch(self, o, size)
 
-        if self._len > self._drain_size and not self._full:
-            self.do_drain()
-
         if o._full and o._len < o._regain_size:
             o.do_regain()
+
+        if self._len > self._drain_size and not self._full:
+            self.do_drain()
         return r
 
     def read(self, size=-1):

@@ -47,7 +47,18 @@ def warp_speed_limit_write(conn, status, key):
     def speed_write(data, speed):
         dl = len(data)
         if dl > speed:
-            status[key] += buffer.fetch(data, speed)
+            if speed <= 0:
+                if speed_limiter.current_speed <= 0:
+                    return
+                speed = min(speed_limiter.current_speed, speed_limiter.speed)
+                if dl > speed:
+                    status[key] += buffer.fetch(data, speed)
+                    speed_limiter.current_speed -= speed
+                else:
+                    status[key] += dl
+                    speed_limiter.current_speed -= dl
+            else:
+                status[key] += buffer.fetch(data, speed)
             try:
                 return origin_write(buffer)
             except sevent.tcp.SocketClosed:
@@ -104,19 +115,25 @@ def warp_delay_write(delayer, warp_write_func):
     def _(conn, status, key):
         origin_write = warp_write_func(conn, status, key)
         buffer = sevent.buffer.Buffer()
-        def delay_write(data):
-            buffer.write(data)
+        key = "delay_%s_buffer_len" % id(buffer)
+        status[key] = 0
+
+        def delay_write(data, data_len):
+            buffer.write(data.read(data_len))
+            status[key] -= data_len
             try:
                 return origin_write(buffer)
             except sevent.tcp.SocketClosed:
                 return False
 
         def __(data):
+            data_len = max(len(data) - status[key], 0)
             if delayer.delay:
-                delayer.queues.append((time.time() + delayer.delay, data.read(), delay_write))
+                delayer.queues.append((time.time() + delayer.delay, data, data_len, delay_write))
             else:
                 delayer.queues.append((time.time() + random.randint(*delayer.rdelays) / 1000000.0,
-                                       data.read(), delay_write))
+                                       data, data_len, delay_write))
+            status[key] += data_len
             if delayer.is_running:
                 return
             delayer.is_running = True
@@ -214,10 +231,10 @@ class Delayer(object):
         try:
             while self.queues:
                 now = time.time()
-                timeout_time, data, callback = self.queues.popleft()
+                timeout_time, data, data_len, callback = self.queues.popleft()
                 if timeout_time > now:
                     await sevent.current().sleep(timeout_time - now)
-                sevent.current().add_async(callback, data)
+                sevent.current().add_async(callback, data, data_len)
         finally:
             self.is_running = False
 
@@ -255,7 +272,7 @@ class SpeedLimiter(object):
                     avg_speed = int(self.global_speed / len(self.buffers))
                     max_speed, over_speed = min(avg_speed, self.speed), 0
                     speed_buffers = []
-                    for conn_id, (data, callback) in list(self.buffers.items()):
+                    for _, (data, callback) in self.buffers.items():
                         dl = len(data)
                         if max_speed > dl:
                             speed_buffers.append((data, dl, dl, callback))
