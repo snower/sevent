@@ -304,6 +304,13 @@ class Buffer(EventEmitter, BaseBuffer):
             self.do_drain()
         return r
 
+    def copyfrom(self, o, size=-1):
+        r = BaseBuffer.copyfrom(self, o, size)
+
+        if self._len > self._drain_size and not self._full:
+            self.do_drain()
+        return r
+
     def read(self, size=-1):
         data = BaseBuffer.read(self, size)
 

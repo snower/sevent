@@ -119,8 +119,7 @@ def warp_delay_write(delayer, warp_write_func):
         status[key] = 0
 
         def delay_write(data, data_len):
-            buffer.write(data.read(data_len))
-            status[key] -= data_len
+            status[key] -= buffer.fetch(data, data_len)
             try:
                 return origin_write(buffer)
             except sevent.tcp.SocketClosed:
@@ -139,6 +138,104 @@ def warp_delay_write(delayer, warp_write_func):
             delayer.is_running = True
             sevent.current().call_async(delayer.loop)
         return __
+    return _
+
+def warp_mirror_write(mirror_host, mirror_header, warp_write_func):
+    mirror_host = mirror_host.split(":")
+    mirror_header = mirror_header.replace("{", "%(").replace("}", ")s")
+    try:
+        if len(mirror_host) == 2:
+            up_address, down_address = ("0.0.0.0", int(mirror_host[0])), ("0.0.0.0", int(mirror_host[1]))
+        elif len(mirror_host) == 3:
+            if mirror_host[0] == "":
+                up_address, down_address = None, (mirror_host[1], int(mirror_host[2]))
+            else:
+                up_address, down_address = (mirror_host[0], int(mirror_host[1])), None
+        elif len(mirror_host) == 4:
+            up_address, down_address = (mirror_host[0], int(mirror_host[1])), (mirror_host[2], int(mirror_host[2]))
+        else:
+            return warp_write_func
+    except ValueError:
+        logging.error("mirror address error %s", mirror_host)
+        return warp_write_func
+
+    def warp_up_conn_write(conn, status, key):
+        origin_write = conn.write
+        up_buffer = sevent.buffer.Buffer()
+
+        def up_conn_write(data):
+            try:
+                if "mirror_up_conn" not in status:
+                    if up_address == down_address and status.get("mirror_down_conn"):
+                        status['mirror_up_conn'] = status.get("mirror_down_conn")
+                    else:
+                        mirror_conn = sevent.tcp.Socket()
+                        mirror_conn.enable_nodelay()
+                        mirror_conn.connect(up_address, 5)
+                        mirror_conn.on_connect(lambda s: mirror_conn.end() if conn._state == sevent.tcp.STATE_CLOSED else None)
+                        mirror_conn.on_data(lambda s, b: b.read())
+                        conn.on_close(lambda s: mirror_conn.end() if mirror_conn._state != sevent.tcp.STATE_CONNECTING else None)
+                        status['mirror_up_conn'] = mirror_conn
+                        try:
+                            if mirror_header:
+                                up_buffer.write((mirror_header % status["mirror_variables"]).encode("utf-8"))
+                        except:
+                            pass
+                    logging.info("mirror up copy to %s:%s", up_address[0], up_address[1])
+                up_buffer.copyfrom(data)
+                status['mirror_up_conn'].write(up_buffer)
+            except:
+                pass
+            return origin_write(data)
+        return up_conn_write
+
+    def warp_down_conn_write(conn, status, key):
+        origin_write = conn.write
+        down_buffer = sevent.buffer.Buffer()
+
+        def down_conn_write(data):
+            try:
+                if "mirror_down_conn" not in status:
+                    if up_address == down_address and status.get("mirror_up_conn"):
+                        status['mirror_down_conn'] = status.get("mirror_up_conn")
+                    else:
+                        mirror_conn = sevent.tcp.Socket()
+                        mirror_conn.enable_nodelay()
+                        mirror_conn.connect(down_address, 5)
+                        mirror_conn.on_connect(lambda s: mirror_conn.end() if conn._state == sevent.tcp.STATE_CLOSED else None)
+                        mirror_conn.on_data(lambda s, b: b.read())
+                        conn.on_close(lambda s: mirror_conn.end() if mirror_conn._state != sevent.tcp.STATE_CONNECTING else None)
+                        status['mirror_down_conn'] = mirror_conn
+                        try:
+                            if mirror_header:
+                                down_buffer.write((mirror_header % status["mirror_variables"]).encode("utf-8"))
+                        except Exception as e:
+                            pass
+                    logging.info("mirror down copy to %s:%s", down_address[0], down_address[1])
+                down_buffer.copyfrom(data)
+                status['mirror_down_conn'].write(down_buffer)
+            except:
+                pass
+            return origin_write(data)
+        return down_conn_write
+
+    def _(conn, status, key):
+        if mirror_header and "mirror_variables" not in status:
+            status["mirror_variables"] = {"conn_id": "", "from_host": "", "from_port": 0, "to_host": "", "to_port": 0}
+        if key == "send_len":
+            if up_address:
+                conn.write = warp_up_conn_write(conn, status, key)
+            if mirror_header:
+                status["mirror_variables"]["to_host"] = conn.address[0]
+                status["mirror_variables"]["to_port"] = conn.address[1]
+        if key == "recv_len":
+            if down_address:
+                conn.write = warp_down_conn_write(conn, status, key)
+            if mirror_header:
+                status["mirror_variables"]["conn_id"] = id(conn)
+                status["mirror_variables"]["from_host"] = conn.address[0]
+                status["mirror_variables"]["from_port"] = conn.address[1]
+        return warp_write_func(conn, status, key)
     return _
 
 def parse_forward(forwards):
@@ -317,6 +414,10 @@ if __name__ == '__main__':
         if v and v.upper()[-1] in BYTES_MAP else int(float(v)), help='global speed limit byte, example: 1024 or 1M (default: 0 is unlimit), available units : B K M G T')
     parser.add_argument('-d', dest='delay', default=0, type=lambda v: (float(v.split("-")[0]), float(v.split("-")[-1])) \
         if v and isinstance(v, str) and "-" in v else float(v), help='delay millisecond (default: 0 is not delay, example -d100 or -d100-200), the - between two numbers will be random delay')
+    parser.add_argument('-M', dest='mirror_host', default="", type=str,
+                        help='mirror host, accept format [[up_host:]up_port:[down_host]:down_port] (example: 0.0.0.0:80:127.0.0.1:8088 or :127.0.0.1:8088 or 127.0.0.1:8088: or 8088:8088)')
+    parser.add_argument('-F', dest='mirror_header', default="", type=str,
+                        help='mirror header, accept variables [from_host|from_port|to_host|to_port|conn_id] (example: "{conn_id}-{from_host}:{from_port}->{to_host}:{to_port}\\r\\n")')
     args = parser.parse_args()
 
     if not args.forwards:
@@ -326,12 +427,16 @@ if __name__ == '__main__':
     if not forwards:
         exit(0)
 
+    if args.speed or args.global_speed:
+        warp_write = warp_speed_limit_write
+
     if args.delay:
         warp_write = warp_delay_write(Delayer(0 if isinstance(args.delay, tuple) else float(args.delay) / 1000.0,
                                     (int(args.delay[0] * 1000), int(args.delay[1] * 1000)) if isinstance(args.delay, tuple) else None),
-                                    warp_speed_limit_write if args.speed or args.global_speed else warp_write)
-    elif args.speed or args.global_speed:
-        warp_write = warp_speed_limit_write
+                                    warp_write)
+
+    if args.mirror_host:
+        warp_write = warp_mirror_write(args.mirror_host, args.mirror_header, warp_write)
 
     forward_servers = []
     for (bind, port, forward_host, forward_port) in forwards:
