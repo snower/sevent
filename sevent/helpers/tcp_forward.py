@@ -3,11 +3,13 @@
 # create by: snower
 
 import time
+import struct
 import random
 import traceback
 import logging
 import argparse
 from collections import deque
+import socket
 import sevent
 
 BYTES_MAP = {"B": 1, "K": 1024, "M": 1024*1024, "G": 1024*1024*1024, "T": 1024*1024*1024*1024}
@@ -22,6 +24,80 @@ def format_data_len(date_len):
     elif date_len < 1024*1024*1024*1024:
         return "%.3fG" % (date_len/(1024.0*1024.0*1024.0))
     return "%.3fT" % (date_len/(1024.0*1024.0*1024.0*1024.0))
+
+def host_parse(host):
+    hosts, subnet, cs = [], ["", 0], []
+    is_brackets, is_subnet = False, False
+    for c in host:
+        if c == ":":
+            if not is_brackets and not is_subnet:
+                hosts.append("".join(cs))
+                cs = []
+            else:
+                cs.append(c)
+        elif c == "[":
+            is_brackets = True
+        elif c == "]":
+            is_brackets = False
+        elif c == "|":
+            hosts.append("".join(cs))
+            cs = []
+            is_subnet = True
+        elif c == "/":
+            subnet[0] = "".join(cs)
+            cs = []
+        else:
+            cs.append(c)
+
+    if is_subnet:
+        if subnet[0]:
+            subnet[1] = int("".join(cs) if cs else "32")
+        else:
+            subnet = ["".join(cs), 32]
+    else:
+        hosts.append("".join(cs))
+        subnet = ["0.0.0.0", 0]
+
+    if len(hosts) == 2:
+        if hosts[0].isdigit() and hosts[1].isdigit():
+            hosts = [("0.0.0.0", int(hosts[0])), ("127.0.0.1", int(hosts[1]))]
+        elif hosts[0] == "":
+            hosts = [("0.0.0.0", 0), ("127.0.0.1", int(hosts[1]))]
+        else:
+            hosts = [("0.0.0.0", 0), (hosts[0]), int(hosts[1])]
+    elif len(hosts) == 3:
+        if hosts[0].isdigit():
+            hosts = [("0.0.0.0", int(hosts[0])), (hosts[1], int(hosts[2]))]
+        elif hosts[0] == "":
+            hosts = [("0.0.0.0", 0), (hosts[1], int(hosts[2]))]
+        elif hosts[2].isdigit():
+            hosts = [(hosts[0], int(hosts[1])), ("127.0.0.1", int(hosts[2]))]
+        else:
+            hosts = [(hosts[0], int(hosts[1])), ("127.0.0.1", 0)]
+    elif len(hosts) == 4:
+        hosts = [(hosts[0], int(hosts[1])), (hosts[2], int(hosts[3]))]
+    else:
+        raise ValueError(u"host error %s", host)
+
+    try:
+        subnet[0] = struct.unpack("!I", socket.inet_pton(socket.AF_INET, subnet[0]))[0]
+        subnet[1] = ~ (0xffffffff >> subnet[1])
+    except:
+        subnet[0] = (struct.unpack("!QQ", socket.inet_pton(socket.AF_INET6, subnet[0])))
+        subnet[1] = (~ (0xffffffffffffffff >> min(subnet[1], 64)), ~ (0xffffffffffffffff >> max(subnet[1] - 64, 0)))
+    return hosts, subnet
+
+def is_subnet(ip, subnet):
+    try:
+        ip = struct.unpack("!I", socket.inet_pton(socket.AF_INET, ip))[0]
+        if isinstance(subnet[0], tuple) or isinstance(subnet[1], tuple):
+            return False
+        return (ip & subnet[1]) == (subnet[0] & subnet[1])
+    except:
+        ip = (struct.unpack("!QQ", socket.inet_pton(socket.AF_INET6, ip)))
+        if not isinstance(subnet[0], tuple) or len(subnet[0]) != 2 or not isinstance(subnet[1], tuple) or len(subnet[1]) != 2:
+            return False
+        return ((ip[0] & subnet[1][0]) == (subnet[0][0] & subnet[1][0])) and ((ip[1] & subnet[1][1]) == (subnet[0][1] & subnet[1][1]))
 
 def warp_write(conn, status, key):
     origin_write = conn.write
@@ -141,23 +217,17 @@ def warp_delay_write(delayer, warp_write_func):
     return _
 
 def warp_mirror_write(mirror_host, mirror_header, warp_write_func):
-    mirror_host = mirror_host.split(":")
-    mirror_header = mirror_header.replace("{", "%(").replace("}", ")s")
     try:
-        if len(mirror_host) == 2:
-            up_address, down_address = ("0.0.0.0", int(mirror_host[0])), ("0.0.0.0", int(mirror_host[1]))
-        elif len(mirror_host) == 3:
-            if mirror_host[0] == "":
-                up_address, down_address = None, (mirror_host[1], int(mirror_host[2]))
-            else:
-                up_address, down_address = (mirror_host[0], int(mirror_host[1])), None
-        elif len(mirror_host) == 4:
-            up_address, down_address = (mirror_host[0], int(mirror_host[1])), (mirror_host[2], int(mirror_host[2]))
-        else:
-            return warp_write_func
+        mirror_host, subnet = host_parse(mirror_host)
+        up_address, down_address = mirror_host[0], mirror_host[1]
+        if up_address[0] == "0.0.0.0":
+            up_address = ("127.0.0.1", up_address[1])
+        if down_address[0] == "0.0.0.0":
+            down_address = ("127.0.0.1", down_address[1])
     except ValueError:
         logging.error("mirror address error %s", mirror_host)
         return warp_write_func
+    mirror_header = mirror_header.replace("{", "%(").replace("}", ")s")
 
     def warp_up_conn_write(conn, status, key):
         origin_write = conn.write
@@ -223,50 +293,31 @@ def warp_mirror_write(mirror_host, mirror_header, warp_write_func):
         if mirror_header and "mirror_variables" not in status:
             status["mirror_variables"] = {"conn_id": "", "from_host": "", "from_port": 0, "to_host": "", "to_port": 0}
         if key == "send_len":
-            if up_address:
-                conn.write = warp_up_conn_write(conn, status, key)
-            if mirror_header:
-                status["mirror_variables"]["to_host"] = conn.address[0]
-                status["mirror_variables"]["to_port"] = conn.address[1]
+            if "mirror_subnet" not in status or status["mirror_subnet"]:
+                if up_address:
+                    conn.write = warp_up_conn_write(conn, status, key)
+                if mirror_header:
+                    status["mirror_variables"]["to_host"] = conn.address[0]
+                    status["mirror_variables"]["to_port"] = conn.address[1]
+            else:
+                status.pop("mirror_variables", None)
         if key == "recv_len":
-            if down_address:
-                conn.write = warp_down_conn_write(conn, status, key)
-            if mirror_header:
-                status["mirror_variables"]["conn_id"] = id(conn)
-                status["mirror_variables"]["from_host"] = conn.address[0]
-                status["mirror_variables"]["from_port"] = conn.address[1]
+            if subnet and not is_subnet(conn.address[0], subnet):
+                status["mirror_subnet"] = False
+
+            if "mirror_subnet" not in status or status["mirror_subnet"]:
+                if down_address:
+                    conn.write = warp_down_conn_write(conn, status, key)
+                if mirror_header:
+                    status["mirror_variables"]["conn_id"] = id(conn)
+                    status["mirror_variables"]["from_host"] = conn.address[0]
+                    status["mirror_variables"]["from_port"] = conn.address[1]
+            else:
+                status.pop("mirror_variables", None)
         return warp_write_func(conn, status, key)
     return _
 
-def parse_forward(forwards):
-    forward_hosts = []
-    for forward in forwards:
-        hosts, i = ['0.0.0.0', 0, '127.0.0.1', 0], 0
-        forward_info = forward.split(":")
-        for f in forward_info:
-            if i >= 4:
-                break
-
-            if i in (0, 2):
-                if not f.isdigit():
-                    hosts[i] = f
-                    i += 1
-                    continue
-                hosts[i + 1] = int(f)
-                i += 2
-                continue
-            else:
-                if f.isdigit():
-                    hosts[i] = int(f)
-                    i += 1
-                    continue
-                hosts[i + 1] = f
-                i += 2
-                continue
-        forward_hosts.append(tuple(hosts))
-    return forward_hosts
-
-async def tcp_forward(conns, conn, forward_host, forward_port, status):
+async def tcp_forward(conns, conn, forward_address, subnet, status):
     start_time = time.time()
     conn.write, pconn = warp_write(conn, status, "recv_len"), None
 
@@ -274,15 +325,15 @@ async def tcp_forward(conns, conn, forward_host, forward_port, status):
         conn.enable_nodelay()
         pconn = sevent.tcp.Socket()
         pconn.enable_nodelay()
-        await pconn.connectof((forward_host, forward_port))
+        await pconn.connectof(forward_address)
         pconn.write = warp_write(pconn, status, "send_len")
-        logging.info("tcp forward connected %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_host, forward_port)
+        logging.info("tcp forward connected %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_address[0], forward_address[1])
         await pconn.linkof(conn)
     except sevent.errors.SocketClosed:
         pass
     except Exception as e:
         logging.info("tcp forward error %s:%d -> %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1],
-                     forward_host, forward_port, e, (time.time() - start_time) * 1000, traceback.format_exc())
+                     forward_address[0], forward_address[1], e, (time.time() - start_time) * 1000, traceback.format_exc())
         return
     finally:
         conn.close()
@@ -290,14 +341,25 @@ async def tcp_forward(conns, conn, forward_host, forward_port, status):
         conns.pop(id(conn), None)
 
     logging.info("tcp forward closed %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1],
-                 forward_host, forward_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]),
+                 forward_address[0], forward_address[1], format_data_len(status["send_len"]), format_data_len(status["recv_len"]),
                  (time.time() - start_time) * 1000)
 
-async def tcp_forward_server(conns, server, forward_host, forward_port, speed_limiter):
+async def tcp_forward_server(conns, server, forward_hosts, speed_limiter):
     while True:
         conn = await server.accept()
+        conn_ip, forward_address, subnet = conn.address[0], None, None
+        for a, s in forward_hosts:
+            if is_subnet(conn_ip, s):
+                forward_address, subnet = a, s
+                break
+
+        if not forward_address:
+            conn.close()
+            logging.info("tcp forward subnet fail %s:%d", conn.address[0], conn.address[1])
+            return
+
         status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0, "speed_limiter": speed_limiter}
-        sevent.current().call_async(tcp_forward, conns, conn, forward_host, forward_port, status)
+        sevent.current().call_async(tcp_forward, conns, conn, forward_address, subnet, status)
         conns[id(conn)] = (conn, status)
 
 async def check_timeout(conns, timeout):
@@ -396,8 +458,8 @@ class SpeedLimiter(object):
 
 async def tcp_forward_servers(servers, timeout, speed, global_speed):
     conns, speed_limiter = {}, (SpeedLimiter(speed, global_speed) if speed or global_speed else None)
-    for server, (forward_host, forward_port) in servers:
-        sevent.current().call_async(tcp_forward_server, conns, server, forward_host, forward_port, speed_limiter)
+    for server, forward_hosts in servers:
+        sevent.current().call_async(tcp_forward_server, conns, server, forward_hosts, speed_limiter)
     await check_timeout(conns, timeout)
 
 if __name__ == '__main__':
@@ -406,7 +468,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="tcp port forward")
     parser.add_argument('-L', dest='forwards', default=[], action="append", type=str,
-                        help='forward host, accept format [[local_bind:]local_port:remote_host:remote_port], support muiti forward args (example: 0.0.0.0:80:127.0.0.1:8088 or 80:127.0.0.1:8088)')
+                        help='forward host, accept format [[local_bind:]local_port:remote_host:remote_port]|[subnet], support muiti forward args (example: 0.0.0.0:80:127.0.0.1:8088 or 80:192.168.0.2:8088|192.168.0.0/24)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
     parser.add_argument('-s', dest='speed', default=0, type=lambda v: int(float(v[:-1]) * BYTES_MAP[v.upper()[-1]]) \
         if v and v.upper()[-1] in BYTES_MAP else int(float(v)), help='per connection speed limit byte, example: 1024 or 1M (default: 0 is unlimit), available units : B K M G T')
@@ -423,7 +485,12 @@ if __name__ == '__main__':
     if not args.forwards:
         exit(0)
 
-    forwards = parse_forward(args.forwards)
+    forwards = {}
+    for forward in args.forwards:
+        hosts, subnet = host_parse(forward)
+        if hosts[0] not in forwards:
+            forwards[hosts[0]] = []
+        forwards[hosts[0]].append((hosts[1], subnet))
     if not forwards:
         exit(0)
 
@@ -439,15 +506,21 @@ if __name__ == '__main__':
         warp_write = warp_mirror_write(args.mirror_host, args.mirror_header, warp_write)
 
     forward_servers = []
-    for (bind, port, forward_host, forward_port) in forwards:
+    for bind_address, forward_hosts in forwards.items():
         server = sevent.tcp.Server()
         server.enable_reuseaddr()
-        server.listen((bind, port))
-        forward_servers.append((server, (forward_host, forward_port)))
-        logging.info("port forward listen %s:%s to %s:%s", bind, port, forward_host, forward_port)
+        server.listen(bind_address)
+        forward_servers.append((server, sorted(forward_hosts,
+                                               key=lambda x: x[1][1][0] * 0xffffffffffffffff + x[1][1][1] if isinstance(x[1][1], tuple) else x[1][1],
+                                               reverse=True)))
+        logging.info("port forward listen %s:%s", bind_address[0], bind_address[1])
 
     try:
         sevent.run(tcp_forward_servers, forward_servers, args.timeout,
                    int(args.speed / 10), int(args.global_speed / 10))
     except KeyboardInterrupt:
+        for server, _ in forward_servers:
+            try:
+                server.close()
+            except: pass
         exit(0)
