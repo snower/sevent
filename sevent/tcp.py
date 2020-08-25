@@ -57,6 +57,9 @@ class Socket(EventEmitter):
                 self._fileno = self._socket.fileno()
                 self._socket.setblocking(False)
                 self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
+
+                self._rbuffers.on("drain", lambda _: self.drain())
+                self._rbuffers.on("regain", lambda _: self.regain())
             except Exception as e:
                 self._loop.add_async(self._error, e)
 

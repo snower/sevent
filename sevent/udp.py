@@ -74,6 +74,10 @@ class Socket(EventEmitter):
                 self._state = STATE_STREAMING
 
                 self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
+
+                self._rbuffers.on("drain", lambda _: self.drain())
+                self._rbuffers.on("regain", lambda _: self.regain())
+
                 self._write_handler = None
                 self._loop.add_async(callback, (ip, address[1]))
             except socket.error as e:

@@ -351,6 +351,8 @@ class Buffer(EventEmitter, BaseBuffer):
 
         self.on_drain, self.do_regain = do_drain, do_regain
         o.on_drain, o.do_regain = do_drain, do_regain
+        if self._full or o._full:
+            do_drain()
         return self
 
     def close(self):
