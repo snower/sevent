@@ -21,7 +21,7 @@ except:
     MAX_BUFFER_SIZE = 4 * 1024 * 1024
 
 try:
-    BUFFER_DRAIN_RATE = max(min(float(os.environ.get("SEVENT_BUFFER_DRAIN_RATE", 0.5)), 0.1), 0.9)
+    BUFFER_DRAIN_RATE = min(max(float(os.environ.get("SEVENT_BUFFER_DRAIN_RATE", 0.5)), 0.1), 0.9)
 except:
     BUFFER_DRAIN_RATE = 0.5
 
@@ -231,7 +231,7 @@ if cbuffer is None:
 
 
 class Buffer(EventEmitter, BaseBuffer):
-    def __init__(self, max_buffer_size = None):
+    def __init__(self, max_buffer_size=None):
         EventEmitter.__init__(self)
         BaseBuffer.__init__(self)
 
@@ -258,21 +258,23 @@ class Buffer(EventEmitter, BaseBuffer):
     def once_regain(self, callback):
         self.once("regain", callback)
 
-    def do_drain(self):
+    def _do_drain(self):
         self._full = True
         self._drain_time = time.time()
         try:
             self.emit_drain(self)
         except Exception as e:
             logging.exception("buffer emit drain error:%s", e)
+    do_drain = _do_drain
 
-    def do_regain(self):
+    def _do_regain(self):
         self._full = False
         self._regain_time = time.time()
         try:
             self.emit_regain(self)
         except Exception as e:
             logging.exception("buffer emit regain error:%s", e)
+    do_regain = _do_regain
 
     def write(self, data, odata=None):
         if odata is None:
@@ -336,26 +338,24 @@ class Buffer(EventEmitter, BaseBuffer):
         o_do_drain, o_do_regain = o.do_drain, o.do_regain
 
         def do_drain():
-            if self._full and o._full:
-                return
             self_do_drain()
             o_do_drain()
 
         def do_regain():
-            if not self._full and not o._full:
-                return
             if self._len >= self._regain_size or o._len >= o._regain_size:
                 return
             self_do_regain()
             o_do_regain()
 
-        self.on_drain, self.do_regain = do_drain, do_regain
-        o.on_drain, o.do_regain = do_drain, do_regain
-        if self._full or o._full:
+        self.do_drain, self.do_regain = do_drain, do_regain
+        o.do_drain, o.do_regain = do_drain, do_regain
+        if (self._full and not o._full) or (not self._full and o._full):
             do_drain()
         return self
 
     def close(self):
+        self.do_drain = self._do_drain
+        self.do_regain = self._do_regain
         self.remove_all_listeners()
 
     def decode(self, *args, **kwargs):
