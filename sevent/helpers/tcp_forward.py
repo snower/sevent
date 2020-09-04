@@ -111,13 +111,15 @@ def warp_speed_limit_write(conn, status, key):
     origin_write = conn.write
     origin_end = conn.end
     speed_limiter = status["speed_limiter"]
-    status["is_end"] = False
+    current_speed_key = "recv_current_speed" if key == "recv_len" else "send_current_speed"
+    end_key = "recv_is_end" if key == "recv_len" else "send_is_end"
+    status[end_key] = False
     buffer = sevent.buffer.Buffer()
 
     def warp_end():
         if conn_id not in speed_limiter.buffers:
             return origin_end()
-        status["is_end"] = True
+        status[end_key] = True
     conn.end = warp_end
 
     def speed_write(data, speed):
@@ -139,15 +141,15 @@ def warp_speed_limit_write(conn, status, key):
                 return origin_write(buffer)
             except sevent.tcp.SocketClosed:
                 speed_limiter.buffers.pop(conn_id, None)
-                if status["is_end"]:
-                    status["is_end"] = False
+                if status[end_key]:
+                    status[end_key] = False
                     sevent.current().add_async(origin_end)
                 return False
 
         if not data:
             speed_limiter.buffers.pop(conn_id, None)
-            if status["is_end"]:
-                status["is_end"] = False
+            if status[end_key]:
+                status[end_key] = False
                 sevent.current().add_async(origin_end)
             return True
 
@@ -159,7 +161,37 @@ def warp_speed_limit_write(conn, status, key):
 
     def _(data):
         if conn_id in speed_limiter.buffers:
-            return
+            current_speed = status[current_speed_key]
+            if current_speed <= 0:
+                return
+
+            if speed_limiter.global_speed:
+                if speed_limiter.current_speed <= 0:
+                    return
+
+                dl = len(data)
+                speed = min(speed_limiter.current_speed, current_speed)
+                if dl > speed:
+                    status[key] += buffer.fetch(data, speed)
+                    speed_limiter.current_speed -= speed
+                    status[current_speed_key] -= speed
+                    return origin_write(buffer)
+
+                status[key] += dl
+                speed_limiter.current_speed -= dl
+                status[current_speed_key] -= dl
+                return origin_write(data)
+
+            dl = len(data)
+            if dl > current_speed:
+                status[key] += buffer.fetch(data, current_speed)
+                status[current_speed_key] = 0
+                return origin_write(buffer)
+
+            status[key] += dl
+            status[current_speed_key] -= dl
+            return origin_write(data)
+
         speed_limiter.buffers[conn_id] = (data, speed_write)
         if not speed_limiter.is_running:
             speed_limiter.is_running = True
@@ -173,17 +205,21 @@ def warp_speed_limit_write(conn, status, key):
             if dl > speed:
                 status[key] += buffer.fetch(data, speed)
                 speed_limiter.current_speed -= speed
+                status[current_speed_key] = 0
                 return origin_write(buffer)
 
             status[key] += dl
             speed_limiter.current_speed -= dl
+            status[current_speed_key] = speed_limiter.speed - dl
             return origin_write(data)
 
         if dl > speed_limiter.speed:
             status[key] += buffer.fetch(data, speed_limiter.speed)
+            status[current_speed_key] = 0
             return origin_write(buffer)
 
         status[key] += dl
+        status[current_speed_key] = speed_limiter.speed - dl
         return origin_write(data)
     return _
 
