@@ -200,6 +200,7 @@ def warp_speed_limit_write(conn, status, key):
         dl = len(data)
         if speed_limiter.global_speed:
             if speed_limiter.current_speed <= 0:
+                status[current_speed_key] = 0
                 return
             speed = min(speed_limiter.current_speed, speed_limiter.speed)
             if dl > speed:
