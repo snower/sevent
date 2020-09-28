@@ -121,6 +121,10 @@ async def tcp_proxy(conns, conn, status):
 
 async def check_timeout(conns, timeout):
     while True:
+        if timeout <= 0:
+            await sevent.current().sleep(7200)
+            continue
+
         try:
             now = time.time()
             for conn_id, (conn, status) in list(conns.items()):
