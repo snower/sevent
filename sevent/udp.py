@@ -40,6 +40,7 @@ class Socket(EventEmitter):
         self._read_handler = None
         self._write_handler = None
         self._has_drain_event = False
+        self._is_enable_broadcast = False
 
         self._max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE
         self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
@@ -71,6 +72,8 @@ class Socket(EventEmitter):
                 self._socket_family = addr[0]
                 self._socket.setblocking(False)
                 self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if self._is_enable_broadcast:
+                    self.enable_broadcast()
                 self._state = STATE_STREAMING
 
                 self._read_handler = self._loop.add_fd(self._fileno, MODE_IN, self._read_cb)
@@ -136,6 +139,20 @@ class Socket(EventEmitter):
 
     def once_drain(self, callback):
         self.once("drain", callback)
+
+    def enable_broadcast(self):
+        if self._socket:
+            try:
+                self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            except Exception as e:
+                logging.warning('broadcast error: %s', e)
+                self._is_enable_broadcast = False
+                return
+        self._is_enable_broadcast = True
+
+    @property
+    def is_enable_broadcast(self):
+        return self._is_enable_broadcast
 
     def end(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
