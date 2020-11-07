@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-version = '0.3.5'
-version_info = (0, 3, 5)
+version = '0.3.6'
+version_info = (0, 3, 6)
 
 import sys
 
