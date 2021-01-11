@@ -219,7 +219,7 @@ class IOLoop(object):
             for callback, args, kwargs in self._run_handlers:
                 try:
                     callback(*args, **kwargs)
-                except Exception  as e:
+                except Exception as e:
                     logging.exception("loop callback error:%s", e)
             self._run_handlers = []
 
@@ -246,6 +246,11 @@ class IOLoop(object):
             handler.canceled = True
         else:
             self._timeout_handlers.remove(handler)
+
+    def wakeup(self, *args, **kwargs):
+        if args and callable(args[0]):
+            self.add_async(args[0], *args[1:], **kwargs)
+        self._waker.wake()
 
 
 if is_py3:

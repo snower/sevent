@@ -4,6 +4,7 @@
 
 import os
 import socket
+import threading
 
 
 def set_close_exec(fd):
@@ -27,15 +28,17 @@ class PipeWaker(object):
         set_close_exec(w)
         self.reader = os.fdopen(r, "rb", 0)
         self.writer = os.fdopen(w, "wb", 0)
+        self.lock = threading.Lock()
 
     def fileno(self):
         return self.reader.fileno()
 
     def wake(self):
-        try:
-            self.writer.write(b"x")
-        except (IOError, ValueError):
-            pass
+        with self.lock:
+            try:
+                self.writer.write(b"x")
+            except (IOError, ValueError):
+                pass
 
     def consume(self):
         try:
@@ -80,15 +83,17 @@ class SocketWaker(object):
         self.reader.setblocking(0)
         self.writer.setblocking(0)
         a.close()
+        self.lock = threading.Lock()
 
     def fileno(self):
         return self.reader.fileno()
 
     def wake(self):
-        try:
-            self.writer.send(b"x")
-        except (IOError, socket.error, ValueError):
-            pass
+        with self.lock:
+            try:
+                self.writer.send(b"x")
+            except (IOError, socket.error, ValueError):
+                pass
 
     def consume(self):
         try:
