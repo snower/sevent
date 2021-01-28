@@ -92,7 +92,7 @@ class Socket(EventEmitter):
         self._state = STATE_CONNECTING
         if not self._dns_resolver:
             self._dns_resolver = DNSResolver.default()
-        self._dns_resolver.resolve(address[0], resolve_callback)
+        return self._dns_resolver.resolve(address[0], resolve_callback)
 
     def __del__(self):
         self.close()
@@ -380,12 +380,10 @@ class Socket(EventEmitter):
 
             if not self._dns_resolver:
                 self._dns_resolver = DNSResolver.default()
-            self._dns_resolver.resolve(address[0], resolve_callback)
-            return False
-        else:
-            ip = self._address_cache[address[0]]
-            BaseBuffer.write(self._wbuffers, data, (ip, address[1]))
-            return do_write()
+            return self._dns_resolver.resolve(address[0], resolve_callback)
+
+        BaseBuffer.write(self._wbuffers, data, (self._address_cache[address[0]], address[1]))
+        return do_write()
 
 
 if is_py3:

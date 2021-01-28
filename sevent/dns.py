@@ -293,13 +293,13 @@ class DNSResolver(EventEmitter):
 
         hostname = ensure_bytes(hostname)
         if not hostname:
-            callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, None)
+            return callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, None)
         elif self.is_ip(hostname):
-            callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, hostname)
+            return callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, hostname)
         elif hostname in self._hosts:
-            callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, self._hosts[hostname])
+            return callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, self._hosts[hostname])
         elif hostname in self._cache:
-            callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, self._cache[hostname])
+            return callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, self._cache[hostname])
         else:
             try:
                 if not self._queue[hostname]:
@@ -315,6 +315,7 @@ class DNSResolver(EventEmitter):
                     self._queue[hostname].append(callback)
             except Exception as e:
                 self.call_callback(hostname, None)
+        return False
 
     def flush(self):
         self._cache.clear()
