@@ -24,6 +24,8 @@ def warp_coroutine(BaseIOLoop):
                 return child_gr.switch()
             self._handlers.append((run_async_fuc, args, kwargs))
 
+        go = call_async
+
         async def sleep(self, seconds):
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
