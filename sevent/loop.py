@@ -11,39 +11,48 @@ from .utils import is_py3
 
 ''' You can only use instance(). Don't create a Loop() '''
 
+_thread_local = threading.local()
+_thread_local._sevent_ioloop = None
 _ioloop_lock = threading.RLock()
 _ioloop_cls = None
 _ioloop = None
+_mul_ioloop = False
 
 
 def instance():
-    global _ioloop_cls, _ioloop
-    if _ioloop is not None:
-        return _ioloop
+    global _ioloop_cls, _ioloop, _mul_ioloop
+    if _thread_local._sevent_ioloop is not None:
+        return _thread_local._sevent_ioloop
 
     with _ioloop_lock:
-        if _ioloop is not None:
-            return _ioloop
-        else:
-            if 'epoll' in select.__dict__:
-                from .impl import epoll_loop
-                logging.debug('using epoll')
-                _ioloop_cls = epoll_loop.EpollLoop
-            elif 'kqueue' in select.__dict__:
-                from .impl import kqueue_loop
-                logging.debug('using kqueue')
-                _ioloop_cls = kqueue_loop.KqueueLoop
-            else:
-                from .impl import select_loop
-                logging.debug('using select')
-                _ioloop_cls = select_loop.SelectLoop
+        if _thread_local._sevent_ioloop is not None:
+            return _thread_local._sevent_ioloop
 
-            _ioloop = _ioloop_cls()
-            return _ioloop
+        if 'epoll' in select.__dict__:
+            from .impl import epoll_loop
+            logging.debug('using epoll')
+            _ioloop_cls = epoll_loop.EpollLoop
+        elif 'kqueue' in select.__dict__:
+            from .impl import kqueue_loop
+            logging.debug('using kqueue')
+            _ioloop_cls = kqueue_loop.KqueueLoop
+        else:
+            from .impl import select_loop
+            logging.debug('using select')
+            _ioloop_cls = select_loop.SelectLoop
+
+        _thread_local._sevent_ioloop = _ioloop_cls()
+        if _ioloop is None:
+            _ioloop = _thread_local._sevent_ioloop
+        else:
+            _mul_ioloop = True
+        return _thread_local._sevent_ioloop
 
 
 def current():
-    return _ioloop
+    if not _mul_ioloop:
+        return _ioloop
+    return _thread_local._sevent_ioloop
 
 
 # these values are defined as the same as poll

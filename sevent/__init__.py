@@ -3,8 +3,7 @@
 version = '0.3.8'
 version_info = (0, 3, 8)
 
-import sys
-
+from .utils import is_py3
 from .loop import instance, current
 from .event import EventEmitter
 from . import tcp
@@ -13,5 +12,22 @@ from .buffer import Buffer
 from .dns import DNSResolver
 from . import errors
 
-if sys.version_info[0] >= 3:
-    from .coroutines import run, Future
+if is_py3:
+    from .coroutines.future import Future
+    from . import loop
+
+
+    def run(callback, *args, **kwargs):
+        return loop.instance().run(callback, *args, **kwargs)
+
+
+    def go(callback, *args, **kwargs):
+        if not loop._mul_ioloop:
+            return loop._ioloop.go(callback, *args, **kwargs)
+        return loop._thread_local._sevent_ioloop.go(callback, *args, **kwargs)
+
+
+    def sleep(seconds):
+        if not loop._mul_ioloop:
+            return loop._ioloop.sleep(seconds)
+        return loop._thread_local._sevent_ioloop.sleep(seconds)
