@@ -548,11 +548,13 @@ class Socket(EventEmitter):
     def link(self, socket):
         assert isinstance(socket, Socket), 'not Socket'
 
+        if self._state not in (STATE_STREAMING, STATE_CONNECTING):
+            raise SocketClosed()
+        if socket._state not in (STATE_STREAMING, STATE_CONNECTING):
+            raise SocketClosed()
+
         rbuffer, wbuffer = socket.buffer
         if self._state != STATE_STREAMING:
-            if self._state != STATE_CONNECTING:
-                raise SocketClosed()
-
             if self._is_enable_fast_open and rbuffer:
                 self.write(rbuffer)
 
@@ -570,9 +572,6 @@ class Socket(EventEmitter):
             socket.on_data(lambda s, data: self.write(data))
 
         if socket._state != STATE_STREAMING:
-            if socket._state != STATE_CONNECTING:
-                raise SocketClosed()
-
             if self._is_enable_fast_open and self._rbuffers:
                 socket.write(self._rbuffers)
 
