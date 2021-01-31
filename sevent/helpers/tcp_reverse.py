@@ -3,6 +3,7 @@
 # create by: snower
 
 import time
+import struct
 import logging
 import traceback
 import argparse
@@ -59,10 +60,8 @@ async def reverse_port_forward(remote_conn, local_conn, status):
 
     try:
         await remote_conn.send(b'\x00')
-
         local_conn.write = warp_write(local_conn, status, "recv_len")
         remote_conn.write = warp_write(remote_conn, status, "send_len")
-
         logging.info("tcp forward connected %s:%d -> %s:%d", local_conn.address[0], local_conn.address[1],
                      remote_conn.address[0], remote_conn.address[1])
         await local_conn.linkof(remote_conn)
@@ -91,16 +90,16 @@ async def handle_remote_connection(conn, key, conns, status):
         status["remote_conn"].remove(conn)
         logging.info("remote conn waited close %s:%d", conn.address[0], conn.address[1])
 
-    if key:
-        status["remote_conn"].append(conn)
-        conn.on_close(on_close)
-        try:
-            auth_key = (await conn.recv(len(key))).read(len(key))
-        except sevent.errors.SocketClosed:
-            return
-        if auth_key != key:
-            await status["remote_conn"].closeof()
-            return
+    status["remote_conn"].append(conn)
+    conn.on_close(on_close)
+    try:
+        _, auth_key_len = struct.unpack("!BB", (await conn.recv(2)).read(2))
+        auth_key = (await conn.recv(auth_key_len)).read(auth_key_len) if auth_key_len >= 0 else b''
+    except sevent.errors.SocketClosed:
+        return
+    if auth_key != key:
+        await status["remote_conn"].closeof()
+        return
 
     setattr(conn, "_authed_time", time.time())
     if status["local_conn"]:
@@ -109,11 +108,10 @@ async def handle_remote_connection(conn, key, conns, status):
         local_conn = status["local_conn"].pop(0)
         sevent.go(reverse_port_forward, conn, local_conn, forward_status)
         conns[id(conn)] = (conn, local_conn, forward_status)
+        if conn not in status["remote_conn"]:
+            return
+        status["remote_conn"].remove(conn)
         return
-
-    if not key:
-        status["remote_conn"].append(conn)
-    conn.on_close(on_close)
     logging.info("remote conn waiting %s:%d", conn.address[0], conn.address[1])
 
 async def handle_local_connection(conn, key, conns, status):
@@ -126,12 +124,12 @@ async def handle_local_connection(conn, key, conns, status):
         conns[id(remote_conn)] = (remote_conn, conn, forward_status)
         return
 
-    status["local_conn"].append(conn)
     def on_close(conn):
         if conn not in status["local_conn"]:
             return
         status["local_conn"].remove(conn)
         logging.info("local conn waited close %s:%d", conn.address[0], conn.address[1])
+    status["local_conn"].append(conn)
     conn.on_close(on_close)
     logging.info("local conn waiting %s:%d", conn.address[0], conn.address[1])
 
@@ -147,8 +145,7 @@ async def run_connect(remote_address, forward_address, key, conns, status):
             conn = sevent.tcp.Socket()
             conn.enable_nodelay()
             await conn.connectof(remote_address)
-            if key:
-                await conn.send(key)
+            await conn.send(struct.pack("!BB", 1, len(key)) + key)
             (await conn.recv(1)).read(1)
             forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
                               "check_send_len": 0}
