@@ -94,7 +94,7 @@ async def handle_remote_connection(conn, key, conns, status):
     conn.on_close(on_close)
     try:
         _, auth_key_len = struct.unpack("!BB", (await conn.recv(2)).read(2))
-        auth_key = (await conn.recv(auth_key_len)).read(auth_key_len) if auth_key_len >= 0 else b''
+        auth_key = (await conn.recv(auth_key_len)).read(auth_key_len) if auth_key_len > 0 else b''
     except sevent.errors.SocketClosed:
         return
     if auth_key != key:
