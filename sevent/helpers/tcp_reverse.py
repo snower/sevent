@@ -178,11 +178,11 @@ async def check_timeout(conns, conn_status, timeout):
                 if not hasattr(conn, "_authed_time"):
                     if now - conn._connected_time >= 30:
                         conn.close()
-                elif now - conn._authed_time >= timeout:
+                elif now - conn._authed_time >= 180:
                     conn.close()
 
             for conn in tuple(conn_status["local_conn"]):
-                if now - conn._connected_time >= timeout:
+                if now - conn._connected_time >= 180:
                     conn.close()
 
             for conn_id, (conn, pconn, status) in list(conns.items()):
