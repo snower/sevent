@@ -98,7 +98,8 @@ async def handle_remote_connection(conn, key, conns, status):
     except sevent.errors.SocketClosed:
         return
     if auth_key != key:
-        await status["remote_conn"].closeof()
+        await conn.closeof()
+        logging.info("remote conn auth fail %s:%d %s", conn.address[0], conn.address[1], auth_key)
         return
 
     setattr(conn, "_authed_time", time.time())
@@ -135,8 +136,12 @@ async def handle_local_connection(conn, key, conns, status):
 
 async def run_server(server, key, conns, status, handle):
     while True:
-        conn = await server.accept()
-        sevent.current().call_async(handle, conn, key, conns, status)
+        try:
+            conn = await server.accept()
+            sevent.current().call_async(handle, conn, key, conns, status)
+        except sevent.errors.SocketClosed as e:
+            sevent.current().call_async(sevent.current().stop)
+            raise e
 
 async def run_connect(remote_address, forward_address, key, conns, status):
     while True:
@@ -215,10 +220,10 @@ if __name__ == '__main__':
         if not args.is_client_mode:
             remote_server = sevent.tcp.Server()
             local_server = sevent.tcp.Server()
-            remote_server.listen((args.bind, args.remote_port))
-            local_server.listen((args.bind, args.local_port))
             remote_server.enable_reuseaddr()
             local_server.enable_reuseaddr()
+            remote_server.listen((args.bind, args.remote_port))
+            local_server.listen((args.bind, args.local_port))
             logging.info("listen %s %d -> %d", args.bind, args.local_port, args.remote_port)
 
             sevent.instance().call_async(run_server, remote_server, sevent.utils.ensure_bytes(args.key),
