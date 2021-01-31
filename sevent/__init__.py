@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-version = '0.3.8'
-version_info = (0, 3, 8)
+version = '0.3.9'
+version_info = (0, 3, 9)
 
 from .utils import is_py3
 from .loop import instance, current
