@@ -56,10 +56,13 @@ async def tcp_forward(conn, forward_address, conns, status):
 
 async def reverse_port_forward(remote_conn, local_conn, status):
     start_time = time.time()
-    local_conn.write = warp_write(local_conn, status, "recv_len")
-    remote_conn.write = warp_write(remote_conn, status, "send_len")
 
     try:
+        await remote_conn.send(b'\x00')
+
+        local_conn.write = warp_write(local_conn, status, "recv_len")
+        remote_conn.write = warp_write(remote_conn, status, "send_len")
+
         logging.info("tcp forward connected %s:%d -> %s:%d", local_conn.address[0], local_conn.address[1],
                      remote_conn.address[0], remote_conn.address[1])
         await local_conn.linkof(remote_conn)
@@ -146,7 +149,7 @@ async def run_connect(remote_address, forward_address, key, conns, status):
             await conn.connectof(remote_address)
             if key:
                 await conn.send(key)
-            await conn.recv(1)
+            (await conn.recv(1)).read(1)
             forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
                               "check_send_len": 0}
             sevent.current().call_async(tcp_forward, conn, forward_address, conns, forward_status)
