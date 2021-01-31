@@ -208,7 +208,7 @@ if __name__ == '__main__':
     parser.add_argument('-k', dest='key', default='', type=str, help='auth key (defualt: "")')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='server mode bind host (default: 0.0.0.0)')
     parser.add_argument('-r', dest='remote_port', default=8088, type=int, help='server mode remote bind port (default: 8088)')
-    parser.add_argument('-l', dest='local_port', default=8089, type=int, help='server mode  local bind port (default: 8088)')
+    parser.add_argument('-l', dest='local_port', default=8089, type=int, help='server mode  local bind port (default: 8089)')
     parser.add_argument('-H', dest='host', default="127.0.0.1", help='client mode bind host (default: 0.0.0.0)')
     parser.add_argument('-P', dest='port', default=8088, type=int, help='client mode bind port (default: 8088)')
     parser.add_argument('-f', dest='forward_host', default="127.0.0.1:80", help='client mode forward host , accept format [remote_host:remote_port] (default: 127.0.0.1:80)')
