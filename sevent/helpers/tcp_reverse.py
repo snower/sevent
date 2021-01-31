@@ -99,6 +99,7 @@ async def handle_remote_connection(conn, key, conns, status):
             await status["remote_conn"].closeof()
             return
 
+    setattr(conn, "_authed_time", time.time())
     if status["local_conn"]:
         forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
                           "check_send_len": 0}
@@ -169,7 +170,10 @@ async def check_timeout(conns, conn_status, timeout):
         try:
             now = time.time()
             for conn in tuple(conn_status["remote_conn"]):
-                if now - conn._connected_time >= timeout:
+                if not hasattr(conn, "_authed_time"):
+                    if now - conn._connected_time >= 30:
+                        conn.close()
+                elif now - conn._authed_time >= timeout:
                     conn.close()
 
             for conn in tuple(conn_status["local_conn"]):
