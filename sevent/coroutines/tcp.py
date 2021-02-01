@@ -204,6 +204,17 @@ def warp_coroutine(BaseSocket, BaseServer):
             socket.on_close(do_closed)
             return main.switch()
 
+        async def join(self):
+            if self._state == STATE_CLOSED:
+                return
+
+            child_gr = greenlet.getcurrent()
+            main = child_gr.parent
+            assert main is not None, "must be running in async func"
+
+            self.on_close(lambda socket: child_gr.switch())
+            return main.switch()
+
     class Server(BaseServer):
         async def accept(self):
             assert self.emit_connection == null_emit_callback, "already accepting"
@@ -261,6 +272,17 @@ def warp_coroutine(BaseSocket, BaseServer):
 
             self.on_close(lambda server: child_gr.switch())
             self.close()
+            return main.switch()
+
+        async def join(self):
+            if self._state == STATE_CLOSED:
+                return
+
+            child_gr = greenlet.getcurrent()
+            main = child_gr.parent
+            assert main is not None, "must be running in async func"
+
+            self.on_close(lambda server: child_gr.switch())
             return main.switch()
 
     return Socket, Server

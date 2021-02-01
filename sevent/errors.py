@@ -10,6 +10,8 @@ class SeventException(Exception):
 class SocketClosed(SeventException):
     pass
 
+class ChainClosed(SeventException):
+    pass
 
 class ResolveError(SeventException):
     pass

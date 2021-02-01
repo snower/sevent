@@ -14,6 +14,7 @@ from . import errors
 
 if is_py3:
     from .coroutines.future import Future
+    from .coroutines.chain import Chain
     from . import loop
 
 

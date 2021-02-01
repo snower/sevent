@@ -239,6 +239,10 @@ class IOLoop(object):
     def add_async(self, callback, *args, **kwargs):
         self._handlers.append((callback, args, kwargs))
 
+    def add_async_safe(self, callback, *args, **kwargs):
+        self._handlers.append((callback, args, kwargs))
+        self._waker.wake()
+
     def add_timeout(self, timeout, callback, *args, **kwargs):
         handler = TimeoutHandler(callback, time.time() + timeout, args, kwargs)
         if not self._timeout_handlers or handler.deadline >= self._timeout_handlers[-1].deadline:
