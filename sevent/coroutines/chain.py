@@ -65,3 +65,6 @@ class Chain(object):
 
     async def closeof(self):
         self.close()
+
+    def __del__(self):
+        self.close()
