@@ -7,7 +7,13 @@ import struct
 import logging
 import traceback
 import argparse
+import threading
+import signal
 import sevent
+
+def config_signal():
+    signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
+    signal.signal(signal.SIGTERM, lambda signum, frame: sevent.current().stop())
 
 def format_data_len(date_len):
     if date_len < 1024:
@@ -167,41 +173,45 @@ async def run_connect(remote_address, forward_address, key, conns, status):
             raise e
 
 async def check_timeout(conns, conn_status, timeout):
-    while True:
-        if timeout <= 0:
-            await sevent.current().sleep(7200)
-            continue
+    def run_check():
+        while True:
+            try:
+                now = time.time()
+                for conn in tuple(conn_status["remote_conn"]):
+                    if not hasattr(conn, "_authed_time"):
+                        if now - conn._connected_time >= 30:
+                            sevent.current().add_async_safe(conn.close)
+                    elif now - conn._authed_time >= 180:
+                        sevent.current().add_async_safe(conn.close)
 
-        try:
-            now = time.time()
-            for conn in tuple(conn_status["remote_conn"]):
-                if not hasattr(conn, "_authed_time"):
-                    if now - conn._connected_time >= 30:
-                        conn.close()
-                elif now - conn._authed_time >= 180:
-                    conn.close()
+                for conn in tuple(conn_status["local_conn"]):
+                    if now - conn._connected_time >= 180:
+                        sevent.current().add_async_safe(conn.close)
 
-            for conn in tuple(conn_status["local_conn"]):
-                if now - conn._connected_time >= 180:
-                    conn.close()
+                for conn_id, (conn, pconn, status) in list(conns.items()):
+                    if status['check_recv_len'] != status['recv_len'] or status['check_send_len'] != status['send_len']:
+                        status["check_recv_len"] = status["recv_len"]
+                        status["check_send_len"] = status["send_len"]
+                        status['last_time'] = now
+                        continue
 
-            for conn_id, (conn, pconn, status) in list(conns.items()):
-                if status['check_recv_len'] != status['recv_len'] or status['check_send_len'] != status['send_len']:
-                    status["check_recv_len"] = status["recv_len"]
-                    status["check_send_len"] = status["send_len"]
-                    status['last_time'] = now
-                    continue
+                    if now - status['last_time'] >= timeout:
+                        sevent.current().add_async_safe(conn.close)
+                        sevent.current().add_async(pconn.close)
+                        conns.pop(conn_id, None)
+            finally:
+                time.sleep(min(float(timeout) / 2.0, 30))
 
-                if now - status['last_time'] >= timeout:
-                    conn.close()
-                    pconn.close()
-                    conns.pop(conn_id, None)
-        finally:
-            await sevent.current().sleep(30)
+    if timeout > 0:
+        check_thread = threading.Thread(target=run_check)
+        check_thread.setDaemon(True)
+        check_thread.start()
+    await sevent.Future()
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    config_signal()
 
     parser = argparse.ArgumentParser(description='tcp reverse port forward')
     parser.add_argument('-c', dest='is_client_mode', nargs='?', const=True, default=False, type=bool, help='is client mode (defualt: False)')

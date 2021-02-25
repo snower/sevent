@@ -8,7 +8,13 @@ import socket
 import argparse
 import logging
 import traceback
+import threading
+import signal
 import sevent
+
+def config_signal():
+    signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
+    signal.signal(signal.SIGTERM, lambda signum, frame: sevent.current().stop())
 
 def format_data_len(date_len):
     if date_len < 1024:
@@ -120,25 +126,28 @@ async def tcp_proxy(conns, conn, status):
                  format_data_len(status["recv_len"]), (time.time() - start_time) * 1000)
 
 async def check_timeout(conns, timeout):
-    while True:
-        if timeout <= 0:
-            await sevent.current().sleep(7200)
-            continue
+    def run_check():
+        while True:
+            try:
+                now = time.time()
+                for conn_id, (conn, status) in list(conns.items()):
+                    if status['check_recv_len'] != status['recv_len'] or status['check_send_len'] != status['send_len']:
+                        status["check_recv_len"] = status["recv_len"]
+                        status["check_send_len"] = status["send_len"]
+                        status['last_time'] = now
+                        continue
 
-        try:
-            now = time.time()
-            for conn_id, (conn, status) in list(conns.items()):
-                if status['check_recv_len'] != status['recv_len'] or status['check_send_len'] != status['send_len']:
-                    status["check_recv_len"] = status["recv_len"]
-                    status["check_send_len"] = status["send_len"]
-                    status['last_time'] = now
-                    continue
+                    if now - status['last_time'] >= timeout:
+                        sevent.current().add_async_safe(conn.close)
+                        conns.pop(conn_id, None)
+            finally:
+                time.sleep(min(float(timeout) / 2.0, 30))
 
-                if now - status['last_time'] >= timeout:
-                    conn.close()
-                    conns.pop(conn_id, None)
-        finally:
-            await sevent.current().sleep(30)
+    if timeout > 0:
+        check_thread = threading.Thread(target=run_check)
+        check_thread.setDaemon(True)
+        check_thread.start()
+    await sevent.Future()
 
 async def tcp_accept(server, timeout):
     conns = {}
@@ -152,6 +161,7 @@ async def tcp_accept(server, timeout):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    config_signal()
 
     parser = argparse.ArgumentParser(description='simple http and socks5 proxy server')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')

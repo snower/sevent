@@ -99,7 +99,7 @@ class SocketWaker(object):
         try:
             while True:
                 result = self.reader.recv(1024)
-                if not result:
+                if not result or len(result) < 1024:
                     break
         except (IOError, socket.error):
             pass

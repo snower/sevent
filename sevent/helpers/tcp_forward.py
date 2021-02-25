@@ -9,10 +9,16 @@ import traceback
 import logging
 import argparse
 from collections import deque
+import threading
+import signal
 import socket
 import sevent
 
 BYTES_MAP = {"B": 1, "K": 1024, "M": 1024*1024, "G": 1024*1024*1024, "T": 1024*1024*1024*1024}
+
+def config_signal():
+    signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
+    signal.signal(signal.SIGTERM, lambda signum, frame: sevent.current().stop())
 
 def format_data_len(date_len):
     if date_len < 1024:
@@ -400,25 +406,28 @@ async def tcp_forward_server(conns, server, forward_hosts, speed_limiter):
         conns[id(conn)] = (conn, status)
 
 async def check_timeout(conns, timeout):
-    while True:
-        if timeout <= 0:
-            await sevent.current().sleep(7200)
-            continue
+    def run_check():
+        while True:
+            try:
+                now = time.time()
+                for conn_id, (conn, status) in list(conns.items()):
+                    if status['check_recv_len'] != status['recv_len'] or status['check_send_len'] != status['send_len']:
+                        status["check_recv_len"] = status["recv_len"]
+                        status["check_send_len"] = status["send_len"]
+                        status['last_time'] = now
+                        continue
 
-        try:
-            now = time.time()
-            for conn_id, (conn, status) in list(conns.items()):
-                if status['check_recv_len'] != status['recv_len'] or status['check_send_len'] != status['send_len']:
-                    status["check_recv_len"] = status["recv_len"]
-                    status["check_send_len"] = status["send_len"]
-                    status['last_time'] = now
-                    continue
+                    if now - status['last_time'] >= timeout:
+                        sevent.current().add_async_safe(conn.close)
+                        conns.pop(conn_id, None)
+            finally:
+                time.sleep(min(float(timeout) / 2.0, 30))
 
-                if now - status['last_time'] >= timeout:
-                    conn.close()
-                    conns.pop(conn_id, None)
-        finally:
-            await sevent.current().sleep(30)
+    if timeout > 0:
+        check_thread = threading.Thread(target=run_check)
+        check_thread.setDaemon(True)
+        check_thread.start()
+    await sevent.Future()
 
 class Delayer(object):
     def __init__(self, delay, rdelays):
@@ -506,6 +515,7 @@ async def tcp_forward_servers(servers, timeout, speed, global_speed):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    config_signal()
 
     parser = argparse.ArgumentParser(description="tcp port forward")
     parser.add_argument('-L', dest='forwards', default=[], action="append", type=str,
