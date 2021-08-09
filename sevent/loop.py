@@ -264,8 +264,9 @@ class IOLoop(object):
                 pass
 
         while self._timeout_handlers:
-            if self._timeout_handlers[0].canceled:
-                self._timeout_handlers.pop(0)
+            if not self._timeout_handlers[0].canceled:
+                break
+            self._timeout_handlers.pop(0)
 
     def wakeup(self, *args, **kwargs):
         if args and callable(args[0]):
