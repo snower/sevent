@@ -258,7 +258,14 @@ class IOLoop(object):
             handler.kwargs = None
             handler.canceled = True
         else:
-            self._timeout_handlers.remove(handler)
+            try:
+                self._timeout_handlers.remove(handler)
+            except ValueError:
+                pass
+
+        while self._timeout_handlers:
+            if self._timeout_handlers[0].canceled:
+                self._timeout_handlers.pop(0)
 
     def wakeup(self, *args, **kwargs):
         if args and callable(args[0]):

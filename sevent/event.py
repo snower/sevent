@@ -28,10 +28,9 @@ class EventEmitter(object):
         if not self._events[event_name] and len(self._events_once[event_name]) == 1:
             def emit_callback(*args, **kwargs):
                 setattr(self, "emit_" + event_name, null_emit_callback)
-                try:
-                    return callback(*args, **kwargs)
-                finally:
-                    self._events_once[event_name] = set()
+                self._events_once[event_name] = set()
+                return callback(*args, **kwargs)
+
             setattr(self, "emit_" + event_name, emit_callback)
         else:
             setattr(self, "emit_" + event_name, self.emit_callback(event_name))
@@ -54,10 +53,9 @@ class EventEmitter(object):
 
             def emit_callback(*args, **kwargs):
                 setattr(self, "emit_" + event_name, null_emit_callback)
-                try:
-                    return callback(*args, **kwargs)
-                finally:
-                    self._events_once[event_name] = set()
+                self._events_once[event_name] = set()
+                return callback(*args, **kwargs)
+
             setattr(self, "emit_" + event_name, emit_callback)
         elif self._events[event_name] and self._events_once[event_name]:
             setattr(self, "emit_" + event_name, self.emit_callback(event_name))
@@ -124,10 +122,8 @@ class EventEmitter(object):
 
                 def emit_callback(*args, **kwargs):
                     setattr(self, "emit_" + event_name, null_emit_callback)
-                    try:
-                        return callback(*args, **kwargs)
-                    finally:
-                        self._events_once[event_name] = set()
+                    self._events_once[event_name] = set()
+                    return callback(*args, **kwargs)
 
                 setattr(self, "emit_" + event_name, emit_callback)
                 return emit_callback
