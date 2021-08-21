@@ -2,6 +2,7 @@
 # 2014/12/28
 # create by: snower
 
+import time
 import logging
 import socket
 import errno
@@ -29,7 +30,7 @@ class Socket(EventEmitter):
         cls.MAX_BUFFER_SIZE = max_buffer_size
         cls.RECV_BUFFER_SIZE = recv_buffer_size
 
-    def __init__(self, loop=None, dns_resolver=None, max_buffer_size = None):
+    def __init__(self, loop=None, dns_resolver=None, max_buffer_size=None):
         EventEmitter.__init__(self)
         self._loop = loop or instance()
         self._dns_resolver = dns_resolver
@@ -384,6 +385,66 @@ class Socket(EventEmitter):
 
         BaseBuffer.write(self._wbuffers, data, (self._address_cache[address[0]], address[1]))
         return do_write()
+
+    @classmethod
+    def link(cls, socket, address, timeout=900):
+        assert isinstance(socket, Socket), 'not Socket'
+
+        if socket._state == STATE_CLOSED:
+            raise SocketClosed()
+
+        linked_maps = {}
+        setattr(socket, "link_timeout_timer", None)
+
+        def on_link_data(s, data):
+            while data:
+                buf, addr = data.next()
+                socket.write((buf, s.link_remote_address))
+                s.link_data_time = time.time()
+
+        def on_link_close(s):
+            if s.link_remote_address in linked_maps:
+                linked_maps.pop(s.link_remote_address)
+
+        def on_data(s, data):
+            while data:
+                buf, addr = data.next()
+                if addr in linked_maps:
+                    link_socket = linked_maps[addr]
+                    link_socket.link_data_time = time.time()
+                else:
+                    link_socket = Socket()
+                    setattr(link_socket, "link_remote_address", addr)
+                    setattr(link_socket, "link_data_time", time.time())
+                    link_socket.on_data(on_link_data)
+                    link_socket.on_close(on_link_close)
+                    linked_maps[addr] = link_socket
+                link_socket.write((buf, address))
+
+        def on_close(s):
+            for addr in list(linked_maps.keys()):
+                link_socket = linked_maps[addr]
+                link_socket.end()
+            linked_maps.clear()
+            if socket.link_timeout_timer:
+                instance().cancel_timeout(socket.link_timeout_timer)
+                socket.link_timeout_timer = None
+        socket.on_data(on_data)
+        socket.on_close(on_close)
+
+        if timeout:
+            def on_timeout():
+                try:
+                    now = time.time()
+                    for addr in list(linked_maps.keys()):
+                        link_socket = linked_maps[addr]
+                        if now - link_socket.link_data_time < timeout:
+                            continue
+                        link_socket.end()
+                        linked_maps.pop(addr)
+                finally:
+                    socket.link_timeout_timer = instance().add_timeout(timeout / 5, on_timeout)
+            socket.link_timeout_timer = instance().add_timeout(timeout / 5, on_timeout)
 
 
 if is_py3:

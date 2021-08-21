@@ -133,6 +133,24 @@ def warp_coroutine(BaseSocket):
             self.on_close(lambda socket: child_gr.switch())
             return main.switch()
 
+        @classmethod
+        async def linkof(cls, socket, address, timeout=900):
+            if socket._state == STATE_CLOSED:
+                raise SocketClosed()
+
+            child_gr = greenlet.getcurrent()
+            main = child_gr.parent
+            assert main is not None, "must be running in async func"
+
+            def do_closed(s):
+                if socket._state != STATE_CLOSED:
+                    return
+                child_gr.switch()
+
+            BaseSocket.link(socket, address, timeout)
+            socket.on_close(do_closed)
+            return main.switch()
+
         async def join(self):
             if self._state == STATE_CLOSED:
                 return
