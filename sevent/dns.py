@@ -343,48 +343,19 @@ class DNSResolver(EventEmitter):
             for callback in callbacks:
                 callback(hostname, None)
 
-    def inet_pton(self, family, addr):
-        if family == socket.AF_INET:
-            return socket.inet_aton(addr)
-        elif family == socket.AF_INET6:
-            if '.' in addr:  # a v4 addr
-                v4addr = addr[addr.rindex(':') + 1:]
-                v4addr = socket.inet_aton(v4addr)
-                if is_py3:
-                    v4addr = list(map(lambda x: ('%02X' % x), ensure_bytes(v4addr)))
-                else:
-                    v4addr = map(lambda x: ('%02X' % ord(x)), ensure_bytes(v4addr))
-                v4addr.insert(2, ':')
-                newaddr = addr[:addr.rindex(':') + 1] + ''.join(v4addr)
-                return self.inet_pton(family, newaddr)
-            dbyts = [0] * 8  # 8 groups
-            grps = addr.split(':')
-            for i, v in enumerate(grps):
-                if v:
-                    dbyts[i] = int(v, 16)
-                else:
-                    for j, w in enumerate(grps[::-1]):
-                        if w:
-                            dbyts[7 - j] = int(w, 16)
-                        else:
-                            break
-                    break
-            if is_py3:
-                return b''.join([(chr(i // 256) + chr(i % 256)).encode("utf-8") for i in dbyts])
-            return b''.join([(chr(i // 256) + chr(i % 256)) for i in dbyts])
-        else:
-            raise RuntimeError("What family?")
-
     def is_ip(self, address):
-        for family in (socket.AF_INET, socket.AF_INET6):
+        if is_py3 and type(address) != str:
+            address = address.decode('utf8')
+
+        try:
+            socket.inet_pton(socket.AF_INET, address)
+            return socket.AF_INET
+        except (TypeError, ValueError, OSError, IOError):
             try:
-                if is_py3 and type(address) != str:
-                    address = address.decode('utf8')
-                self.inet_pton(family, address)
-                return family
+                socket.inet_pton(socket.AF_INET6, address)
+                return socket.AF_INET6
             except (TypeError, ValueError, OSError, IOError):
-                pass
-        return False
+                return False
 
 
 if is_py3:
