@@ -3,8 +3,8 @@
 # create by: snower
 
 import types
-import logging
 import greenlet
+from ..utils import get_logger
 
 
 def warp_coroutine(BaseIOLoop):
@@ -18,7 +18,7 @@ def warp_coroutine(BaseIOLoop):
                         except StopIteration:
                             return
                         except Exception as e:
-                            logging.exception("loop callback error:%s", e)
+                            get_logger().exception("loop callback error:%s", e)
 
                     child_gr = greenlet.greenlet(run_coroutine)
                     return child_gr.switch()
@@ -34,7 +34,7 @@ def warp_coroutine(BaseIOLoop):
                     except StopIteration:
                         return
                     except Exception as e:
-                        logging.exception("loop callback error:%s", e)
+                        get_logger().exception("loop callback error:%s", e)
                 child_gr = greenlet.greenlet(run_async)
                 return child_gr.switch()
             return self._handlers.append((run_async_fuc, args, kwargs))

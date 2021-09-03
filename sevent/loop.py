@@ -3,11 +3,10 @@
 import select
 import time
 import bisect
-import logging
 import threading
 from collections import defaultdict
 from .waker import Waker
-from .utils import is_py3
+from .utils import is_py3, get_logger
 
 ''' You can only use instance(). Don't create a Loop() '''
 
@@ -30,15 +29,15 @@ def instance():
 
         if 'epoll' in select.__dict__:
             from .impl import epoll_loop
-            logging.debug('using epoll')
+            get_logger().debug('using epoll')
             _ioloop_cls = epoll_loop.EpollLoop
         elif 'kqueue' in select.__dict__:
             from .impl import kqueue_loop
-            logging.debug('using kqueue')
+            get_logger().debug('using kqueue')
             _ioloop_cls = kqueue_loop.KqueueLoop
         else:
             from .impl import select_loop
-            logging.debug('using select')
+            get_logger().debug('using select')
             _ioloop_cls = select_loop.SelectLoop
 
         _thread_local._sevent_ioloop = _ioloop_cls()
@@ -200,7 +199,7 @@ class IOLoop(object):
                             try:
                                 handler.callback(*handler.args, **handler.kwargs)
                             except Exception as e:
-                                logging.exception("loop callback timeout error:%s", e)
+                                get_logger().exception("loop callback timeout error:%s", e)
                         elif self._handlers:
                             timeout = 0
                             break
@@ -221,7 +220,7 @@ class IOLoop(object):
                         try:
                             hcallback()
                         except Exception as e:
-                            logging.exception("loop callback error:%s", e)
+                            get_logger().exception("loop callback error:%s", e)
 
             # call handlers without fd
             self._handlers, self._run_handlers = self._run_handlers, self._handlers
@@ -229,7 +228,7 @@ class IOLoop(object):
                 try:
                     callback(*args, **kwargs)
                 except Exception as e:
-                    logging.exception("loop callback error:%s", e)
+                    get_logger().exception("loop callback error:%s", e)
             self._run_handlers = []
 
     def stop(self):

@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import logging
 from collections import defaultdict
-from .utils import is_py3
+from .utils import is_py3, get_logger
 
 
 def null_emit_callback(*args, **kwargs):
@@ -79,7 +78,7 @@ class EventEmitter(object):
                 try:
                     cb(*args, **kwargs)
                 except Exception as e:
-                    logging.exception('error when calling callback:%s',e)
+                    get_logger().exception('error when calling callback:%s',e)
 
             callbacks = self._events_once[event_name]
             if callbacks:
@@ -89,7 +88,7 @@ class EventEmitter(object):
                     try:
                         cb(*args, **kwargs)
                     except Exception as e:
-                        logging.exception('error when calling callback:%s',e)
+                        get_logger().exception('error when calling callback:%s',e)
         return _
 
     def emit(self, event_name, *args, **kwargs):
@@ -97,7 +96,7 @@ class EventEmitter(object):
             try:
                 cb(*args, **kwargs)
             except Exception as e:
-                logging.exception('error when calling callback:%s', e)
+                get_logger().exception('error when calling callback:%s', e)
 
         callbacks = self._events_once[event_name]
         if callbacks:
@@ -107,7 +106,7 @@ class EventEmitter(object):
                 try:
                     cb(*args, **kwargs)
                 except Exception as e:
-                    logging.exception('error when calling callback:%s', e)
+                    get_logger().exception('error when calling callback:%s', e)
 
     def __getattr__(self, item):
         if item[:5] == "emit_":

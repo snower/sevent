@@ -3,7 +3,7 @@
 version = '0.4.3'
 version_info = (0, 4, 3)
 
-from .utils import is_py3
+from .utils import is_py3, set_logger
 from .loop import instance, current
 from .event import EventEmitter
 from . import tcp

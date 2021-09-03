@@ -3,6 +3,7 @@
 # create by: snower
 
 import sys
+import logging
 
 if sys.version_info[0] >= 3:
     is_py3 = True
@@ -35,3 +36,12 @@ def ensure_unicode(s):
     if isinstance(s, byte_type):
         return s.decode("utf-8")
     return s
+
+_logger = logging
+
+def set_logger(logger):
+    global _logger
+    _logger = logger
+
+def get_logger():
+    return _logger

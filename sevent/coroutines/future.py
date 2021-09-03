@@ -2,8 +2,8 @@
 # 2020/5/10
 # create by: snower
 
-import logging
 import greenlet
+from ..utils import get_logger
 
 _PENDING = 'PENDING'
 _CANCELLED = 'CANCELLED'
@@ -47,7 +47,7 @@ class Future(object):
             try:
                 callback(self)
             except Exception as e:
-                logging.exception("future schedule callback error:%s", e)
+                get_logger().exception("future schedule callback error:%s", e)
 
     def cancelled(self):
         return self._state == _CANCELLED

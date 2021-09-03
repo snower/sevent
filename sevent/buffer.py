@@ -4,11 +4,10 @@
 
 import os
 import time
-import logging
 from collections import deque
 from .event import EventEmitter
 from .loop import current
-from .utils import ensure_unicode, is_py3
+from .utils import get_logger
 
 try:
     RECV_BUFFER_SIZE = int(os.environ.get("SEVENT_RECV_BUFFER_SIZE", 0))
@@ -54,7 +53,7 @@ try:
     else:
         cbuffer = None
 except ImportError:
-    logging.warning("cbuffer is not supported")
+    get_logger().warning("cbuffer is not supported")
     cbuffer = None
 
 RECV_BUFFER_SIZE = RECV_BUFFER_SIZE or 8 * 1024 - 64
@@ -264,7 +263,7 @@ class Buffer(EventEmitter, BaseBuffer):
         try:
             self.emit_drain(self)
         except Exception as e:
-            logging.exception("buffer emit drain error:%s", e)
+            get_logger().exception("buffer emit drain error:%s", e)
     do_drain = _do_drain
 
     def _do_regain(self):
@@ -273,7 +272,7 @@ class Buffer(EventEmitter, BaseBuffer):
         try:
             self.emit_regain(self)
         except Exception as e:
-            logging.exception("buffer emit regain error:%s", e)
+            get_logger().exception("buffer emit regain error:%s", e)
     do_regain = _do_regain
 
     def write(self, data, odata=None):

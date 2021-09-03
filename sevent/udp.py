@@ -3,10 +3,9 @@
 # create by: snower
 
 import time
-import logging
 import socket
 import errno
-from .utils import is_py3
+from .utils import is_py3, get_logger
 from .event import EventEmitter, null_emit_callback
 from .loop import instance, MODE_IN, MODE_OUT
 from .dns import DNSResolver
@@ -146,7 +145,7 @@ class Socket(EventEmitter):
             try:
                 self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             except Exception as e:
-                logging.warning('broadcast error: %s', e)
+                get_logger().warning('broadcast error: %s', e)
                 self._is_enable_broadcast = False
                 return
         self._is_enable_broadcast = True
@@ -169,13 +168,13 @@ class Socket(EventEmitter):
             try:
                 self._loop.remove_fd(self._fileno, self._read_cb)
             except Exception as e:
-                logging.error("socket close remove_fd error:%s", e)
+                get_logger().error("socket close remove_fd error:%s", e)
             self._read_handler = False
         if self._write_handler:
             try:
                 self._loop.remove_fd(self._fileno, self._write_cb)
             except Exception as e:
-                logging.error("socket close remove_fd error:%s", e)
+                get_logger().error("socket close remove_fd error:%s", e)
             self._write_handler = False
         self._state = STATE_CLOSED
 
@@ -184,16 +183,16 @@ class Socket(EventEmitter):
                 try:
                     self._loop.clear_fd(self._fileno)
                 except Exception as e:
-                    logging.error("server close clear_fd error: %s", e)
+                    get_logger().error("server close clear_fd error: %s", e)
                 try:
                     self._socket.close()
                 except Exception as e:
-                    logging.error("socket close socket error:%s", e)
+                    get_logger().error("socket close socket error:%s", e)
 
             try:
                 self.emit_close(self)
             except Exception as e:
-                logging.exception("tcp emit close error:%s", e)
+                get_logger().exception("tcp emit close error:%s", e)
             self.remove_all_listeners()
             self._rbuffers.close()
             self._wbuffers.close()
@@ -206,7 +205,7 @@ class Socket(EventEmitter):
         self._loop.add_async(self.emit_error, self, error)
         self._loop.add_async(self.close)
         if self.emit_error == null_emit_callback:
-            logging.error("socket error: %s", error)
+            get_logger().error("socket error: %s", error)
 
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):

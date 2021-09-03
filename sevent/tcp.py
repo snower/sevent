@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import logging
 import socket
 import errno
-from .utils import is_py3
+from .utils import is_py3, get_logger
 from .event import EventEmitter, null_emit_callback
 from .loop import instance, MODE_IN, MODE_OUT
 from .buffer import Buffer, BaseBuffer, cbuffer, RECV_BUFFER_SIZE
@@ -145,7 +144,7 @@ class Socket(EventEmitter):
             try:
                 self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             except Exception as e:
-                logging.warning('nodela error: %s', e)
+                get_logger().warning('nodela error: %s', e)
                 self._is_enable_nodelay = False
                 return
         self._is_enable_nodelay = True
@@ -174,7 +173,7 @@ class Socket(EventEmitter):
             try:
                 self._loop.remove_fd(self._fileno, self._connect_cb)
             except Exception as e:
-                logging.error("socket close remove_fd error:%s", e)
+                get_logger().error("socket close remove_fd error:%s", e)
             self._connect_handler = False
             if self._connect_timeout_handler:
                 self._loop.cancel_timeout(self._connect_timeout_handler)
@@ -184,13 +183,13 @@ class Socket(EventEmitter):
                 try:
                     self._loop.remove_fd(self._fileno, self._read_cb)
                 except Exception as e:
-                    logging.error("socket close remove_fd error:%s", e)
+                    get_logger().error("socket close remove_fd error:%s", e)
                 self._read_handler = False
             if self._write_handler:
                 try:
                     self._loop.remove_fd(self._fileno, self._write_cb)
                 except Exception as e:
-                    logging.error("socket close remove_fd error:%s", e)
+                    get_logger().error("socket close remove_fd error:%s", e)
                 self._write_handler = False
 
         self._state = STATE_CLOSED
@@ -199,16 +198,16 @@ class Socket(EventEmitter):
                 try:
                     self._loop.clear_fd(self._fileno)
                 except Exception as e:
-                    logging.error("server close clear_fd error: %s", e)
+                    get_logger().error("server close clear_fd error: %s", e)
                 try:
                     self._socket.close()
                 except Exception as e:
-                    logging.error("socket close socket error:%s", e)
+                    get_logger().error("socket close socket error:%s", e)
 
             try:
                 self.emit_close(self)
             except Exception as e:
-                logging.exception("tcp emit close error:%s", e)
+                get_logger().exception("tcp emit close error:%s", e)
             self.remove_all_listeners()
             self._rbuffers.close()
             self._wbuffers.close()
@@ -220,7 +219,7 @@ class Socket(EventEmitter):
         self._loop.add_async(self.emit_error, self, error)
         self._loop.add_async(self.close)
         if self.emit_error == null_emit_callback:
-            logging.error("socket error:%s", error)
+            get_logger().error("socket error:%s", error)
 
     def _connect_cb(self):
         if self._state != STATE_CONNECTING:
@@ -289,14 +288,14 @@ class Socket(EventEmitter):
                     try:
                         self._socket.setsockopt(socket.SOL_TCP, 23, 5)
                     except Exception as e:
-                        logging.warning('fast open error: %s', e)
+                        get_logger().warning('fast open error: %s', e)
                         self._is_enable_fast_open = False
 
                 if self._is_enable_nodelay:
                     try:
                         self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     except Exception as e:
-                        logging.warning('nodela error: %s', e)
+                        get_logger().warning('nodela error: %s', e)
                         self._is_enable_nodelay = False
 
                 if self._is_enable_fast_open:
@@ -449,7 +448,7 @@ class Socket(EventEmitter):
                         self._error(e)
                     return False
                 elif e.args[0] == errno.ENOTCONN:
-                    logging.error('fast open not supported on this OS')
+                    get_logger().error('fast open not supported on this OS')
                     self._is_enable_fast_open = False
                 self._error(e)
                 return False
@@ -682,14 +681,14 @@ class Server(EventEmitter):
                     try:
                         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     except Exception as e:
-                        logging.warning('reuseaddr error: %s', e)
+                        get_logger().warning('reuseaddr error: %s', e)
                         self._is_reuseaddr = False
 
                 if self._is_enable_fast_open:
                     try:
                         self._socket.setsockopt(socket.SOL_TCP, 23, 5)
                     except Exception as e:
-                        logging.warning('fast open error: %s', e)
+                        get_logger().warning('fast open error: %s', e)
                         self._is_enable_fast_open = False
 
                 self._socket.bind(addr[4])
@@ -715,7 +714,7 @@ class Server(EventEmitter):
     def _error(self, error):
         self._loop.add_async(self.emit_error, self, error)
         self.close()
-        logging.error("server error: %s", error)
+        get_logger().error("server error: %s", error)
 
     def close(self):
         if self._state in (STATE_INITIALIZED, STATE_LISTENING):
@@ -723,24 +722,24 @@ class Server(EventEmitter):
                 try:
                     self._loop.remove_fd(self._fileno, self._accept_cb)
                 except Exception as e:
-                    logging.error("server close remove_fd error: %s", e)
+                    get_logger().error("server close remove_fd error: %s", e)
                 self._accept_handler = False
             if self._socket is not None:
                 try:
                     self._loop.clear_fd(self._fileno)
                 except Exception as e:
-                    logging.error("server close clear_fd error: %s", e)
+                    get_logger().error("server close clear_fd error: %s", e)
                 try:
                     self._socket.close()
                 except Exception as e:
-                    logging.error("server close socket error: %s", e)
+                    get_logger().error("server close socket error: %s", e)
             self._state = STATE_CLOSED
 
             def on_close():
                 try:
                     self.emit_close(self)
                 except Exception as e:
-                    logging.exception("tcp server emit close error:%s", e)
+                    get_logger().exception("tcp server emit close error:%s", e)
                 self.remove_all_listeners()
             self._loop.add_async(on_close)
 

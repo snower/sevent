@@ -2,8 +2,8 @@
 # 2020/5/8
 # create by: snower
 
-import logging
 import greenlet
+from ..utils import get_logger
 
 
 def warp_coroutine(BaseEventEmitter):
@@ -19,7 +19,7 @@ def warp_coroutine(BaseEventEmitter):
                     except StopIteration:
                         pass
                     except Exception as e:
-                        logging.exception("error when calling callback:%s", e)
+                        get_logger().exception("error when calling callback:%s", e)
                 child_gr = greenlet.greenlet(run)
                 return child_gr.switch()
             BaseEventEmitter.on(self, event_name, run_async_fuc)
@@ -35,7 +35,7 @@ def warp_coroutine(BaseEventEmitter):
                     except StopIteration:
                         pass
                     except Exception as e:
-                        logging.exception("error when calling callback:%s", e)
+                        get_logger().exception("error when calling callback:%s", e)
                 child_gr = greenlet.greenlet(run)
                 return child_gr.switch()
             BaseEventEmitter.once(self, event_name, run_async_fuc)
