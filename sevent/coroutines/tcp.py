@@ -216,6 +216,55 @@ def warp_coroutine(BaseSocket, BaseServer):
             return main.switch()
 
     class Server(BaseServer):
+        async def listenof(self, address, backlog=128):
+            assert self.emit_listen == null_emit_callback, "already accepting"
+
+            if self._state != STATE_INITIALIZED:
+                if self._state == STATE_CLOSED:
+                    raise SocketClosed()
+                return
+
+            child_gr = greenlet.getcurrent()
+            main = child_gr.parent
+            assert main is not None, "must be running in async func"
+
+            emit_listen = self.emit_listen
+            emit_close = self.emit_close
+            emit_error = self.emit_error
+
+            def on_listen(server):
+                if self.emit_listen != on_listen:
+                    return
+
+                self.emit_listen = emit_listen
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.switch()
+
+            def on_close(socket):
+                if self.emit_close != on_close:
+                    return
+
+                self.emit_listen = emit_listen
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.throw(SocketClosed())
+
+            def on_error(socker, e):
+                if self.emit_error != on_error:
+                    return
+
+                self.emit_listen = emit_listen
+                self.emit_close = emit_close
+                self.emit_error = emit_error
+                return child_gr.throw(e)
+
+            setattr(self, "emit_listen", on_listen)
+            setattr(self, "emit_close", on_close)
+            setattr(self, "emit_error", on_error)
+            self.listen(address, backlog)
+            return main.switch()
+
         async def accept(self):
             assert self.emit_connection == null_emit_callback, "already accepting"
 

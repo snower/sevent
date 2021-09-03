@@ -159,12 +159,12 @@ class Socket(EventEmitter):
             return
 
         if self._state in (STATE_INITIALIZED, STATE_CONNECTING):
-            self.close()
+            self._loop.add_async(self.close)
         else:
             if self._write_handler:
                 self._state = STATE_CLOSING
             else:
-                self.close()
+                self._loop.add_async(self.close)
 
     def close(self):
         if self._state == STATE_CLOSED:
@@ -176,6 +176,9 @@ class Socket(EventEmitter):
             except Exception as e:
                 logging.error("socket close remove_fd error:%s", e)
             self._connect_handler = False
+            if self._connect_timeout_handler:
+                self._loop.cancel_timeout(self._connect_timeout_handler)
+                self._connect_timeout_handler = None
         elif self._state in (STATE_STREAMING, STATE_CLOSING):
             if self._read_handler:
                 try:
@@ -257,6 +260,7 @@ class Socket(EventEmitter):
         self._connect_timeout = timeout
 
         def on_timeout_cb():
+            self._connect_timeout_handler = None
             if self._state == STATE_CONNECTING:
                 if not self._is_enable_fast_open:
                     self._error(ConnectTimeout("connect time out %s" % str(address)))
@@ -608,6 +612,9 @@ class Server(EventEmitter):
     def __del__(self):
         self.close()
 
+    def on_listen(self, callback):
+        self.on("listen", callback)
+
     def on_connection(self, callback):
         self.on("connection", callback)
 
@@ -616,6 +623,9 @@ class Server(EventEmitter):
 
     def on_error(self, callback):
         self.on("error", callback)
+
+    def once_listen(self, callback):
+        self.on("listen", callback)
 
     def once_connection(self, callback):
         self.on("connection", callback)
@@ -685,6 +695,7 @@ class Server(EventEmitter):
                 self._socket.bind(addr[4])
                 self._accept_handler = self._loop.add_fd(self._fileno, MODE_IN, self._accept_cb)
                 self._socket.listen(backlog)
+                self._loop.add_async(self.emit_listen, self)
             except Exception as e:
                 self._loop.add_async(self._error, e)
 

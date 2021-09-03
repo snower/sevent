@@ -158,7 +158,7 @@ class Socket(EventEmitter):
     def end(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):
             if not self._write_handler:
-                self.close()
+                self._loop.add_async(self.close)
             else:
                 self._state = STATE_CLOSING
 
@@ -447,14 +447,15 @@ class Socket(EventEmitter):
             socket.link_timeout_timer = instance().add_timeout(timeout / 5, on_timeout)
 
 
-if is_py3:
-    from .coroutines.udp import warp_coroutine
-    Socket = warp_coroutine(Socket)
-
-
 class Server(Socket):
     def __init__(self, loop=None):
-        super(Server, self).__init__(loop)
+        Socket.__init__(self, loop)
+
+    def on_bind(self, callback):
+        self.on("bind", callback)
+
+    def once_bind(self, callback):
+        self.on("bind", callback)
 
     def bind(self, address):
         if self._state != STATE_INITIALIZED:
@@ -466,6 +467,7 @@ class Server(Socket):
             try:
                 self._socket.bind(address)
                 self._state = STATE_BINDING
+                self._loop.add_async(self.emit_bind, self)
             except Exception as e:
                 self._loop.add_async(self._error, e)
 
@@ -473,3 +475,8 @@ class Server(Socket):
 
     def __del__(self):
         self.close()
+
+
+if is_py3:
+    from .coroutines.udp import warp_coroutine
+    Socket, Server = warp_coroutine(Socket, Server)
