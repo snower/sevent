@@ -153,10 +153,6 @@ async def tcp_accept(server, args):
         conns[id(conn)] = (conn, status)
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-    config_signal()
-
     parser = argparse.ArgumentParser(description='simple http and socks5 proxy forward to http or socks5 uplink proxy')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
@@ -165,6 +161,9 @@ if __name__ == '__main__':
     parser.add_argument('-P', dest='proxy_host', default="127.0.0.1:8088", help='proxy host, accept format [proxy_host:proxy_port]  (default: 127.0.0.1:8088)')
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    config_signal()
     server = sevent.tcp.Server()
     server.enable_reuseaddr()
     server.listen((args.bind, args.port))

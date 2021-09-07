@@ -513,10 +513,6 @@ async def tcp_forward_servers(servers, timeout, speed, global_speed):
     await check_timeout(conns, timeout)
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-    config_signal()
-
     parser = argparse.ArgumentParser(description="tcp port forward")
     parser.add_argument('-L', dest='forwards', default=[], action="append", type=str,
                         help='forward host, accept format [[local_bind:]local_port:remote_host:remote_port]|[subnet], support muiti forward args (example: 0.0.0.0:80:127.0.0.1:8088 or 80:192.168.0.2:8088|192.168.0.0/24)')
@@ -533,6 +529,9 @@ if __name__ == '__main__':
                         help='mirror header, accept variables [from_host|from_port|to_host|to_port|conn_id] (example: "{conn_id}-{from_host}:{from_port}->{to_host}:{to_port}\\r\\n")')
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    config_signal()
     if not args.forwards:
         exit(0)
 

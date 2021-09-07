@@ -209,10 +209,6 @@ async def check_timeout(conns, conn_status, timeout):
     await sevent.Future()
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-    config_signal()
-
     parser = argparse.ArgumentParser(description='tcp reverse port forward')
     parser.add_argument('-c', dest='is_client_mode', nargs='?', const=True, default=False, type=bool, help='is client mode (defualt: False)')
     parser.add_argument('-k', dest='key', default='', type=str, help='auth key (defualt: "")')
@@ -225,6 +221,9 @@ if __name__ == '__main__':
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    config_signal()
     conns, status = {}, {"remote_conn": [], "local_conn": []}
     try:
         if not args.is_client_mode:

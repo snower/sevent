@@ -159,16 +159,15 @@ async def tcp_accept(server, timeout):
         conns[id(conn)] = (conn, status)
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-    config_signal()
-
     parser = argparse.ArgumentParser(description='simple http and socks5 proxy server')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    config_signal()
     logging.info("listen server at %s:%d", args.bind, args.port)
     server = sevent.tcp.Server()
     server.enable_reuseaddr()
