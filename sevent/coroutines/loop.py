@@ -15,6 +15,8 @@ def warp_coroutine(BaseIOLoop):
                     def run_coroutine():
                         try:
                             callback.send(None)
+                            while True:
+                                callback.send(None)
                         except StopIteration:
                             return
                         except Exception as e:
@@ -30,7 +32,10 @@ def warp_coroutine(BaseIOLoop):
             def run_async_fuc(*args, **kwargs):
                 def run_async():
                     try:
-                        callback(*args, **kwargs).send(None)
+                        g = callback(*args, **kwargs)
+                        g.send(None)
+                        while True:
+                            g.send(None)
                     except StopIteration:
                         return
                     except Exception as e:

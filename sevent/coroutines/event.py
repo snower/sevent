@@ -15,7 +15,10 @@ def warp_coroutine(BaseEventEmitter):
             def run_async_fuc(*args, **kwargs):
                 def run():
                     try:
-                        callback(*args, **kwargs).send(None)
+                        g = callback(*args, **kwargs)
+                        g.send(None)
+                        while True:
+                            g.send(None)
                     except StopIteration:
                         pass
                     except Exception as e:
@@ -31,7 +34,10 @@ def warp_coroutine(BaseEventEmitter):
             def run_async_fuc(*args, **kwargs):
                 def run():
                     try:
-                        callback(*args, **kwargs).send(None)
+                        g = callback(*args, **kwargs)
+                        g.send(None)
+                        while True:
+                            g.send(None)
                     except StopIteration:
                         pass
                     except Exception as e:
