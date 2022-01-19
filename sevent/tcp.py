@@ -49,6 +49,7 @@ class Socket(EventEmitter):
         self._is_enable_nodelay = False
         self._is_resolve = False
         self._has_drain_event = False
+        self.ignore_write_closed_error = False
 
         if self._socket:
             self._state = STATE_STREAMING
@@ -525,6 +526,8 @@ class Socket(EventEmitter):
                 if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
                     return self._connect_and_write()
                 return False
+            if self.ignore_write_closed_error:
+                return False
             raise SocketClosed()
 
         if data.__class__ == Buffer:
@@ -556,6 +559,8 @@ class Socket(EventEmitter):
         if socket._state not in (STATE_STREAMING, STATE_CONNECTING):
             raise SocketClosed()
 
+        self.ignore_write_closed_error = True
+        socket.ignore_write_closed_error = True
         rbuffer, wbuffer = socket.buffer
         if self._state != STATE_STREAMING:
             if self._is_enable_fast_open and rbuffer:

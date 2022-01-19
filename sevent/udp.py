@@ -47,6 +47,7 @@ class Socket(EventEmitter):
         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._address_cache = {}
         self._state = STATE_INITIALIZED
+        self.ignore_write_closed_error = False
 
     @property
     def socket(self):
@@ -341,6 +342,8 @@ class Socket(EventEmitter):
 
     def write(self, data):
         if self._state == STATE_CLOSED:
+            if self.ignore_write_closed_error:
+                return False
             raise SocketClosed()
 
         def do_write():
@@ -392,6 +395,7 @@ class Socket(EventEmitter):
         if socket._state == STATE_CLOSED:
             raise SocketClosed()
 
+        socket.ignore_write_closed_error = True
         linked_maps = {}
         setattr(socket, "link_timeout_timer", None)
 
@@ -415,6 +419,7 @@ class Socket(EventEmitter):
                     link_socket = Socket()
                     setattr(link_socket, "link_remote_address", addr)
                     setattr(link_socket, "link_data_time", time.time())
+                    link_socket.ignore_write_closed_error = True
                     link_socket.on_data(on_link_data)
                     link_socket.on_close(on_link_close)
                     linked_maps[addr] = link_socket
