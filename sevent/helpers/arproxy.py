@@ -2,12 +2,17 @@
 # 2020/7/10
 # create by: snower
 
+import re
 from sevent.helpers.tcp2proxy import *
 
 def check_host(forward_host, allow_hosts):
     for host in allow_hosts:
-        if forward_host == host or forward_host.endswith(host):
-            return True
+        if isinstance(host, str):
+            if forward_host == host or forward_host.endswith(host):
+                return True
+        else:
+            if host.match(forward_host):
+                return True
     return False
 
 async def parse_http_forward(conn, rbuffer):
@@ -111,10 +116,9 @@ async def none_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_po
     logging.info("none proxy closed %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], remote_host, remote_port,
                  format_data_len(status["send_len"]), format_data_len(status["recv_len"]), (time.time() - start_time) * 1000)
 
-
 async def parse_forward(proxy_type, conns, conn, proxy_host, proxy_port,
                         default_forward_host, default_forward_port, default_forward_proxy_type,
-                        allow_hosts, status):
+                        allow_hosts, noproxy_hosts, status):
     try:
         rbuffer = sevent.Buffer()
         timer = sevent.current().add_timeout(5, lambda: conn.close())
@@ -152,9 +156,17 @@ async def parse_forward(proxy_type, conns, conn, proxy_host, proxy_port,
         rbuffer.write(conn.buffer[0].read())
         conn.buffer[0].write(rbuffer.read())
         if proxy_type == "http":
-            await http_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
+            if check_host(forward_host, noproxy_hosts):
+                proxy_type = "none"
+                await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
+            else:
+                await http_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
         elif proxy_type == "socks5":
-            await socks5_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
+            if check_host(forward_host, noproxy_hosts):
+                proxy_type = "none"
+                await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
+            else:
+                await socks5_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
         else:
             await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
     except Exception as e:
@@ -182,6 +194,18 @@ async def tcp_accept(server, args):
             default_forward_host, default_forward_port = "127.0.0.1", int(default_forward_info[0])
     else:
         default_forward_host, default_forward_port = default_forward_info[0], int(default_forward_info[1])
+    allow_hosts = []
+    for allow_host in args.allow_hosts.split(","):
+        if "*" in allow_host and "*" != allow_host:
+            allow_hosts.append(re.compile(allow_host.replace(".", "\.").replace("*", ".+?")))
+        else:
+            allow_hosts.append(allow_host)
+    noproxy_hosts = []
+    for noproxy_host in args.noproxy_hosts.split(","):
+        if "*" in noproxy_host and "*" != noproxy_host:
+            noproxy_hosts.append(re.compile(noproxy_host.replace(".", "\.").replace("*", ".+?")))
+        else:
+            noproxy_hosts.append(noproxy_host)
 
     logging.info("use %s proxy %s:%d default forward to %s:%d", args.proxy_type, proxy_host, proxy_port,
                  default_forward_host, default_forward_port)
@@ -192,7 +216,7 @@ async def tcp_accept(server, args):
         status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
         sevent.current().call_async(parse_forward, args.proxy_type, conns, conn, proxy_host, proxy_port,
                                     default_forward_host, default_forward_port, args.default_forward_proxy_type,
-                                    args.allow_hosts.split(","), status)
+                                    allow_hosts, noproxy_hosts, status)
         conns[id(conn)] = (conn, status)
 
 def main(argv):
@@ -209,7 +233,9 @@ def main(argv):
     parser.add_argument('-x', dest='default_forward_proxy_type', default="http", choices=("none", "http", "socks5"),
                         help='default remote forward  proxy type (default: http)')
     parser.add_argument('-H', dest='allow_hosts', default="*",
-                        help='allow hosts, accept format [host,host,host] (default: *)')
+                        help='allow hosts, accept format [host,*host,host*] (default: *)')
+    parser.add_argument('-N', dest='noproxy_hosts', default="*",
+                        help='noproxy hosts, accept format [host,*host,host*] (default: *)')
     args = parser.parse_args(args=argv)
     config_signal()
     server = create_server((args.bind, args.port))

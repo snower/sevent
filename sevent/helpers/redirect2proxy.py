@@ -9,16 +9,11 @@ import argparse
 import logging
 import traceback
 import threading
-import signal
 import socket
 import sevent
-from .utils import create_server, create_socket
+from .utils import create_server, create_socket, config_signal
 from .simple_proxy import format_data_len, warp_write
 from .tcp2proxy import http_build_protocol, socks5_build_protocol, socks5_read_protocol
-
-def config_signal():
-    signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
-    signal.signal(signal.SIGTERM, lambda signum, frame: sevent.current().stop())
 
 async def socks5_proxy(proxy_host, proxy_port, remote_host, remote_port):
     pconn = None

@@ -11,27 +11,11 @@ import logging
 import argparse
 from collections import deque
 import threading
-import signal
 import socket
 import sevent
-from .utils import create_server, create_socket
+from .utils import create_server, create_socket, config_signal, format_data_len, is_subnet
 
 BYTES_MAP = {"B": 1, "K": 1024, "M": 1024*1024, "G": 1024*1024*1024, "T": 1024*1024*1024*1024}
-
-def config_signal():
-    signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
-    signal.signal(signal.SIGTERM, lambda signum, frame: sevent.current().stop())
-
-def format_data_len(date_len):
-    if date_len < 1024:
-        return "%dB" % date_len
-    elif date_len < 1024*1024:
-        return "%.3fK" % (date_len/1024.0)
-    elif date_len < 1024*1024*1024:
-        return "%.3fM" % (date_len/(1024.0*1024.0))
-    elif date_len < 1024*1024*1024*1024:
-        return "%.3fG" % (date_len/(1024.0*1024.0*1024.0))
-    return "%.3fT" % (date_len/(1024.0*1024.0*1024.0*1024.0))
 
 def host_parse(host):
     hosts, subnet, cs = [], ["", 0], []
@@ -94,18 +78,6 @@ def host_parse(host):
         subnet[0] = (struct.unpack("!QQ", socket.inet_pton(socket.AF_INET6, subnet[0])))
         subnet[1] = (~ (0xffffffffffffffff >> min(subnet[1], 64)), ~ (0xffffffffffffffff >> max(subnet[1] - 64, 0)))
     return hosts, subnet
-
-def is_subnet(ip, subnet):
-    try:
-        ip = struct.unpack("!I", socket.inet_pton(socket.AF_INET, ip))[0]
-        if isinstance(subnet[0], tuple) or isinstance(subnet[1], tuple):
-            return False
-        return (ip & subnet[1]) == (subnet[0] & subnet[1])
-    except:
-        ip = (struct.unpack("!QQ", socket.inet_pton(socket.AF_INET6, ip)))
-        if not isinstance(subnet[0], tuple) or len(subnet[0]) != 2 or not isinstance(subnet[1], tuple) or len(subnet[1]) != 2:
-            return False
-        return ((ip[0] & subnet[1][0]) == (subnet[0][0] & subnet[1][0])) and ((ip[1] & subnet[1][1]) == (subnet[0][1] & subnet[1][1]))
 
 def warp_write(conn, status, key):
     origin_write = conn.write

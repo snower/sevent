@@ -10,29 +10,13 @@ import logging
 import traceback
 import argparse
 import threading
-import signal
 import socket
 import hashlib
 import sevent
-from .utils import create_server, create_socket
+from .utils import create_server, create_socket, config_signal, format_data_len
 from .simple_proxy import http_protocol_parse, socks5_protocol_parse
 
 conns, status = {}, {"remote_conn": [], "local_conn": []}
-
-def config_signal():
-    signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
-    signal.signal(signal.SIGTERM, lambda signum, frame: sevent.current().stop())
-
-def format_data_len(date_len):
-    if date_len < 1024:
-        return "%dB" % date_len
-    elif date_len < 1024*1024:
-        return "%.3fK" % (date_len/1024.0)
-    elif date_len < 1024*1024*1024:
-        return "%.3fM" % (date_len/(1024.0*1024.0))
-    elif date_len < 1024*1024*1024*1024:
-        return "%.3fG" % (date_len/(1024.0*1024.0*1024.0))
-    return "%.3fT" % (date_len/(1024.0*1024.0*1024.0*1024.0))
 
 def warp_write(conn, status, key):
     origin_write = conn.write
