@@ -15,7 +15,16 @@ def create_server(address, *args, **kwargs):
 
 def create_socket(address):
     if "pipe" in address:
-        conn = sevent.pipe.PipeSocket()
+        if isinstance(address, (tuple, list)):
+            pipe_address = "pipe#%s" % (address[1] if len(address) >= 2 else address[-1])
+        elif not isinstance(address, str):
+            pipe_address = "pipe#%s" % address
+        else:
+            pipe_address = address
+        if pipe_address in sevent.pipe.PipeServer._bind_servers:
+            conn = sevent.pipe.PipeSocket()
+        else:
+            conn = sevent.tcp.Socket()
     else:
         conn = sevent.tcp.Socket()
     conn.enable_nodelay()
