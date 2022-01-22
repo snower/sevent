@@ -8,6 +8,7 @@ from .loop import instance, current
 from .event import EventEmitter
 from . import tcp
 from . import udp
+from . import pipe
 from .buffer import Buffer
 from .dns import DNSResolver
 from . import errors

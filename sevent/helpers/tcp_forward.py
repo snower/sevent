@@ -2,6 +2,7 @@
 # 2020/7/10
 # create by: snower
 
+import sys
 import time
 import struct
 import random
@@ -13,6 +14,7 @@ import threading
 import signal
 import socket
 import sevent
+from .utils import create_server, create_socket
 
 BYTES_MAP = {"B": 1, "K": 1024, "M": 1024*1024, "G": 1024*1024*1024, "T": 1024*1024*1024*1024}
 
@@ -282,8 +284,7 @@ def warp_mirror_write(mirror_host, mirror_header, warp_write_func):
                     if up_address == down_address and status.get("mirror_down_conn"):
                         status['mirror_up_conn'] = status.get("mirror_down_conn")
                     else:
-                        mirror_conn = sevent.tcp.Socket()
-                        mirror_conn.enable_nodelay()
+                        mirror_conn = create_socket(up_address)
                         mirror_conn.connect(up_address, 5)
                         mirror_conn.on_connect(lambda s: mirror_conn.end() if conn._state == sevent.tcp.STATE_CLOSED else None)
                         mirror_conn.on_data(lambda s, b: b.read())
@@ -312,8 +313,7 @@ def warp_mirror_write(mirror_host, mirror_header, warp_write_func):
                     if up_address == down_address and status.get("mirror_up_conn"):
                         status['mirror_down_conn'] = status.get("mirror_up_conn")
                     else:
-                        mirror_conn = sevent.tcp.Socket()
-                        mirror_conn.enable_nodelay()
+                        mirror_conn = create_socket(down_address)
                         mirror_conn.connect(down_address, 5)
                         mirror_conn.on_connect(lambda s: mirror_conn.end() if conn._state == sevent.tcp.STATE_CLOSED else None)
                         mirror_conn.on_data(lambda s, b: b.read())
@@ -366,8 +366,7 @@ async def tcp_forward(conns, conn, forward_address, subnet, status):
 
     try:
         conn.enable_nodelay()
-        pconn = sevent.tcp.Socket()
-        pconn.enable_nodelay()
+        pconn = create_socket(forward_address)
         await pconn.connectof(forward_address)
         pconn.write = warp_write(pconn, status, "send_len")
         logging.info("tcp forward connected %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_address[0], forward_address[1])
@@ -512,7 +511,9 @@ async def tcp_forward_servers(servers, timeout, speed, global_speed):
         sevent.current().call_async(tcp_forward_server, conns, server, forward_hosts, speed_limiter)
     await check_timeout(conns, timeout)
 
-if __name__ == '__main__':
+def main(argv):
+    global warp_write
+
     parser = argparse.ArgumentParser(description="tcp port forward")
     parser.add_argument('-L', dest='forwards', default=[], action="append", type=str,
                         help='forward host, accept format [[local_bind:]local_port:remote_host:remote_port]|[subnet], support muiti forward args (example: 0.0.0.0:80:127.0.0.1:8088 or 80:192.168.0.2:8088|192.168.0.0/24)')
@@ -527,10 +528,7 @@ if __name__ == '__main__':
                         help='mirror host, accept format [[up_host:]up_port:[down_host]:down_port] (example: 0.0.0.0:80:127.0.0.1:8088 or :127.0.0.1:8088 or 127.0.0.1:8088: or 8088:8088)')
     parser.add_argument('-F', dest='mirror_header', default="", type=str,
                         help='mirror header, accept variables [from_host|from_port|to_host|to_port|conn_id] (example: "{conn_id}-{from_host}:{from_port}->{to_host}:{to_port}\\r\\n")')
-    args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    args = parser.parse_args(args=argv)
     config_signal()
     if not args.forwards:
         exit(0)
@@ -557,20 +555,20 @@ if __name__ == '__main__':
 
     forward_servers = []
     for bind_address, forward_hosts in forwards.items():
-        server = sevent.tcp.Server()
-        server.enable_reuseaddr()
-        server.listen(bind_address)
+        server = create_server(bind_address)
         forward_servers.append((server, sorted(forward_hosts,
                                                key=lambda x: x[1][1][0] * 0xffffffffffffffff + x[1][1][1] if isinstance(x[1][1], tuple) else x[1][1],
                                                reverse=True)))
         logging.info("port forward listen %s:%s", bind_address[0], bind_address[1])
 
+    sevent.current().call_async(tcp_forward_servers, forward_servers, args.timeout,
+                                int(args.speed / 10), int(args.global_speed / 10))
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
     try:
-        sevent.run(tcp_forward_servers, forward_servers, args.timeout,
-                   int(args.speed / 10), int(args.global_speed / 10))
+        main(sys.argv[1:])
+        sevent.instance().start()
     except KeyboardInterrupt:
-        for server, _ in forward_servers:
-            try:
-                server.close()
-            except: pass
         exit(0)

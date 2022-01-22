@@ -2,6 +2,7 @@
 # 2021/1/31
 # create by: snower
 
+import sys
 import os
 import time
 import struct
@@ -13,7 +14,10 @@ import signal
 import socket
 import hashlib
 import sevent
+from .utils import create_server, create_socket
 from .simple_proxy import http_protocol_parse, socks5_protocol_parse
+
+conns, status = {}, {"remote_conn": [], "local_conn": []}
 
 def config_signal():
     signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
@@ -87,8 +91,7 @@ async def tcp_forward(conn, forward_address, conns, status):
 
     try:
         conn.enable_nodelay()
-        pconn = sevent.tcp.Socket()
-        pconn.enable_nodelay()
+        pconn = create_socket(forward_address)
         await pconn.connectof(forward_address)
         pconn.write = warp_write(pconn, status, "send_len")
         conns[id(conn)] = (conn, pconn, status)
@@ -191,7 +194,7 @@ async def handle_remote_connection(conn, forward_address, key, proxy_type, conns
         return
 
     await conn.closeof()
-    logging.info("remote conn unsupport connect type %s:%d %s", conn.address[0], conn.address[1], auth_key)
+    logging.info("remote conn unsupport connect type %s:%d %s", conn.address[0], conn.address[1], key)
 
 async def handle_local_connection(conn, forward_address, key, proxy_type, conns, status):
     try:
@@ -232,8 +235,7 @@ async def run_connect(remote_address, forward_address, key, conns, status):
     while True:
         start_time = time.time()
         try:
-            conn = sevent.tcp.Socket()
-            conn.enable_nodelay()
+            conn = create_socket(remote_address)
             await conn.connectof(remote_address)
             sign_key = gen_sign_key(key)
             await conn.send(struct.pack("!BB", 1, len(sign_key)) + sign_key)
@@ -261,8 +263,7 @@ async def handle_local_connect(conn, remote_address, key, proxy_type, conns, sta
     try:
         forward_address = (await parse_forward_address(conn, proxy_type)) if proxy_type else None
 
-        pconn = sevent.tcp.Socket()
-        pconn.enable_nodelay()
+        pconn = create_socket(remote_address)
         await pconn.connectof(remote_address)
         sign_key = gen_sign_key(key)
         if forward_address:
@@ -338,7 +339,7 @@ async def check_timeout(conns, conn_status, timeout):
         check_thread.start()
     await sevent.Future()
 
-if __name__ == '__main__':
+def main(argv):
     parser = argparse.ArgumentParser(description='tcp reverse port forward')
     parser.add_argument('-c', dest='is_client_mode', nargs='?', const=True, default=False, type=bool, help='is client mode (defualt: False)')
     parser.add_argument('-k', dest='key', default='', type=str, help='auth key (defualt: "")')
@@ -350,12 +351,8 @@ if __name__ == '__main__':
     parser.add_argument('-f', dest='forward_host', default="127.0.0.1:80", help='client mode forward host , accept format [remote_host:remote_port] (default: 127.0.0.1:80)')
     parser.add_argument('-T', dest='proxy_type', default="", choices=("raw", "http", "socks5", "redirect"), help='local listen proxy type (default: raw)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
-    args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    args = parser.parse_args(args=argv)
     config_signal()
-    conns, status = {}, {"remote_conn": [], "local_conn": []}
 
     forward_info = args.forward_host.split(":")
     if len(forward_info) == 1:
@@ -366,35 +363,34 @@ if __name__ == '__main__':
     else:
         forward_host, forward_port = forward_info[0], int(forward_info[1])
 
+    if not args.is_client_mode:
+        remote_server = create_server((args.bind, args.remote_port))
+        local_server = create_server((args.bind, args.local_port or 8089))
+        logging.info("listen %s %d -> %d", args.bind, args.local_port or 8089, args.remote_port)
+
+        sevent.instance().call_async(run_server, remote_server, (forward_host, forward_port),
+                                     sevent.utils.ensure_bytes(args.key), args.proxy_type,
+                                     conns, status, handle_remote_connection)
+        sevent.instance().call_async(run_server, local_server, (forward_host, forward_port),
+                                     sevent.utils.ensure_bytes(args.key), args.proxy_type,
+                                     conns, status, handle_local_connection)
+    else:
+        if args.local_port:
+            local_server = create_server((args.bind, args.local_port))
+            logging.info("listen %s %d", args.bind, args.local_port)
+            sevent.instance().call_async(run_local_server, local_server, (args.host, args.port),
+                                         sevent.utils.ensure_bytes(args.key), args.proxy_type, conns)
+
+        logging.info("connect %s:%d -> %s:%d", args.host, args.port, forward_host, forward_port)
+        sevent.instance().call_async(run_connect, (args.host, args.port), (forward_host, forward_port),
+                                     sevent.utils.ensure_bytes(args.key), conns, status)
+    sevent.current().call_async(check_timeout, conns, status, args.timeout)
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
     try:
-        if not args.is_client_mode:
-            remote_server = sevent.tcp.Server()
-            local_server = sevent.tcp.Server()
-            remote_server.enable_reuseaddr()
-            local_server.enable_reuseaddr()
-            remote_server.listen((args.bind, args.remote_port))
-            local_server.listen((args.bind, args.local_port or 8089))
-            logging.info("listen %s %d -> %d", args.bind, args.local_port or 8089, args.remote_port)
-
-            sevent.instance().call_async(run_server, remote_server, (forward_host, forward_port),
-                                         sevent.utils.ensure_bytes(args.key), args.proxy_type,
-                                         conns, status, handle_remote_connection)
-            sevent.instance().call_async(run_server, local_server, (forward_host, forward_port),
-                                         sevent.utils.ensure_bytes(args.key), args.proxy_type,
-                                         conns, status, handle_local_connection)
-        else:
-            if args.local_port:
-                local_server = sevent.tcp.Server()
-                local_server.enable_reuseaddr()
-                local_server.listen((args.bind, args.local_port))
-                logging.info("listen %s %d", args.bind, args.local_port)
-                sevent.instance().call_async(run_local_server, local_server, (args.host, args.port),
-                                             sevent.utils.ensure_bytes(args.key), args.proxy_type, conns)
-
-            logging.info("connect %s:%d -> %s:%d", args.host, args.port, forward_host, forward_port)
-            sevent.instance().call_async(run_connect, (args.host, args.port), (forward_host, forward_port),
-                                         sevent.utils.ensure_bytes(args.key), conns, status)
-
-        sevent.run(check_timeout, conns, status, args.timeout)
+        main(sys.argv[1:])
+        sevent.instance().start()
     except KeyboardInterrupt:
         exit(0)

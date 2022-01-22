@@ -2,6 +2,7 @@
 # 2020/7/10
 # create by: snower
 
+import sys
 import time
 import argparse
 import logging
@@ -9,6 +10,7 @@ import traceback
 import threading
 import signal
 import sevent
+from .utils import create_server, create_socket
 from .simple_proxy import format_data_len, warp_write, http_protocol_parse, socks5_protocol_parse
 from .tcp2proxy import http_build_protocol, socks5_build_protocol, socks5_read_protocol
 
@@ -19,8 +21,7 @@ def config_signal():
 async def socks5_proxy(proxy_host, proxy_port, remote_host, remote_port):
     pconn = None
     try:
-        pconn = sevent.tcp.Socket()
-        pconn.enable_nodelay()
+        pconn = create_socket((proxy_host, proxy_port))
         await pconn.connectof((proxy_host, proxy_port))
         await pconn.send(b"\x05\x01\x00")
         buffer = await pconn.recv()
@@ -47,8 +48,7 @@ async def socks5_proxy(proxy_host, proxy_port, remote_host, remote_port):
 async def http_proxy(proxy_host, proxy_port, remote_host, remote_port):
     pconn = None
     try:
-        pconn = sevent.tcp.Socket()
-        pconn.enable_nodelay()
+        pconn = create_socket((proxy_host, proxy_port))
         await pconn.connectof((proxy_host, proxy_port))
 
         protocol_data = http_build_protocol(remote_host, remote_port)
@@ -152,23 +152,24 @@ async def tcp_accept(server, args):
         sevent.current().call_async(tcp_proxy, conns, conn, args.proxy_type, proxy_host, proxy_port, status)
         conns[id(conn)] = (conn, status)
 
-if __name__ == '__main__':
+def main(argv):
     parser = argparse.ArgumentParser(description='simple http and socks5 proxy forward to http or socks5 uplink proxy')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
     parser.add_argument('-T', dest='proxy_type', default="http", choices=("http", "socks5"), help='proxy type (default: http)')
     parser.add_argument('-P', dest='proxy_host', default="127.0.0.1:8088", help='proxy host, accept format [proxy_host:proxy_port]  (default: 127.0.0.1:8088)')
-    args = parser.parse_args()
+    args = parser.parse_args(args=argv)
+    config_signal()
+    server = create_server((args.bind, args.port))
+    logging.info("listen server at %s:%d", args.bind, args.port)
+    sevent.run(tcp_accept, server, args)
 
+if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-    config_signal()
-    server = sevent.tcp.Server()
-    server.enable_reuseaddr()
-    server.listen((args.bind, args.port))
-    logging.info("listen server at %s:%d", args.bind, args.port)
     try:
-        sevent.run(tcp_accept, server, args)
+        main(sys.argv[1:])
+        sevent.instance().start()
     except KeyboardInterrupt:
         exit(0)

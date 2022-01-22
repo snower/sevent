@@ -390,8 +390,6 @@ class Socket(EventEmitter):
 
     @classmethod
     def link(cls, socket, address, timeout=900):
-        assert isinstance(socket, Socket), 'not Socket'
-
         if socket._state == STATE_CLOSED:
             raise SocketClosed()
 

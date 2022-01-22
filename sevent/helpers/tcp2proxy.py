@@ -2,6 +2,7 @@
 # 2020/7/10
 # create by: snower
 
+import sys
 import time
 import logging
 import struct
@@ -11,6 +12,7 @@ import argparse
 import threading
 import signal
 import sevent
+from .utils import create_server, create_socket
 
 def config_signal():
     signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
@@ -65,8 +67,7 @@ async def socks5_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_
 
     try:
         conn.enable_nodelay()
-        pconn = sevent.tcp.Socket()
-        pconn.enable_nodelay()
+        pconn = create_socket((proxy_host, proxy_port))
         await pconn.connectof((proxy_host, proxy_port))
         await pconn.send(b"\x05\x01\x00")
         buffer = await pconn.recv()
@@ -111,8 +112,7 @@ async def http_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_po
 
     try:
         conn.enable_nodelay()
-        pconn = sevent.tcp.Socket()
-        pconn.enable_nodelay()
+        pconn = create_socket((proxy_host, proxy_port))
         await pconn.connectof((proxy_host, proxy_port))
 
         protocol_data = http_build_protocol(remote_host, remote_port)
@@ -196,7 +196,7 @@ async def tcp_accept(server, args):
             sevent.current().call_async(socks5_proxy, conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
         conns[id(conn)] = (conn, status)
 
-if __name__ == '__main__':
+def main(argv):
     parser = argparse.ArgumentParser(description='forword tcp port to remote host from http or socks5 proxy')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
@@ -204,16 +204,17 @@ if __name__ == '__main__':
     parser.add_argument('-T', dest='proxy_type', default="http", choices=("http", "socks5"), help='proxy type (default: http)')
     parser.add_argument('-P', dest='proxy_host', default="127.0.0.1:8088", help='proxy host, accept format [proxy_host:proxy_port] (default: 127.0.0.1:8088)')
     parser.add_argument('-f', dest='forward_host', default="127.0.0.1:80", help='remote forward host , accept format [remote_host:remote_port] (default: 127.0.0.1:80)')
-    args = parser.parse_args()
+    args = parser.parse_args(args=argv)
+    config_signal()
+    server = create_server((args.bind, args.port))
+    logging.info("listen server at %s:%d", args.bind, args.port)
+    sevent.current().call_async(tcp_accept, server, args)
 
+if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
-    config_signal()
-    server = sevent.tcp.Server()
-    server.enable_reuseaddr()
-    server.listen((args.bind, args.port))
-    logging.info("listen server at %s:%d", args.bind, args.port)
     try:
-        sevent.run(tcp_accept, server, args)
+        main(sys.argv[1:])
+        sevent.instance().start()
     except KeyboardInterrupt:
         exit(0)

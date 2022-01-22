@@ -2,6 +2,7 @@
 # 2020/7/10
 # create by: snower
 
+import sys
 import time
 import struct
 import socket
@@ -11,6 +12,7 @@ import traceback
 import threading
 import signal
 import sevent
+from .utils import create_server, create_socket
 
 def config_signal():
     signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
@@ -104,8 +106,7 @@ async def tcp_proxy(conns, conn, status):
             return
 
         logging.info("connected %s %s:%d", protocol, host, port)
-        pconn = sevent.tcp.Socket()
-        pconn.enable_nodelay()
+        pconn = create_socket((host, port))
         pconn.write = warp_write(pconn, status, "send_len")
         await pconn.connectof((host, port))
         if data:
@@ -158,21 +159,22 @@ async def tcp_accept(server, timeout):
         sevent.current().call_async(tcp_proxy, conns, conn, status)
         conns[id(conn)] = (conn, status)
 
-if __name__ == '__main__':
+def main(argv):
     parser = argparse.ArgumentParser(description='simple http and socks5 proxy server')
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
-    args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
+    args = parser.parse_args(args=argv)
     config_signal()
     logging.info("listen server at %s:%d", args.bind, args.port)
-    server = sevent.tcp.Server()
-    server.enable_reuseaddr()
-    server.listen((args.bind, args.port))
+    server = create_server((args.bind, args.port))
+    sevent.current().call_async(tcp_accept, server, args.timeout)
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)1.1s %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
     try:
-        sevent.run(tcp_accept, server, args.timeout)
+        main(sys.argv[1:])
+        sevent.instance().start()
     except KeyboardInterrupt:
         exit(0)

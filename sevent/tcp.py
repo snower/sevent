@@ -552,8 +552,6 @@ class Socket(EventEmitter):
         return False
 
     def link(self, socket):
-        assert isinstance(socket, Socket), 'not Socket'
-
         if self._state not in (STATE_STREAMING, STATE_CONNECTING):
             raise SocketClosed()
         if socket._state not in (STATE_STREAMING, STATE_CONNECTING):
@@ -580,7 +578,7 @@ class Socket(EventEmitter):
             socket.on_data(lambda s, data: self.write(data))
 
         if socket._state != STATE_STREAMING:
-            if self._is_enable_fast_open and self._rbuffers:
+            if socket._is_enable_fast_open and self._rbuffers:
                 socket.write(self._rbuffers)
 
             def on_pconnect(s):
@@ -600,7 +598,7 @@ class Socket(EventEmitter):
 
 
 class Server(EventEmitter):
-    def __init__(self, loop=None, dns_resolver = None):
+    def __init__(self, loop=None, dns_resolver=None):
         EventEmitter.__init__(self)
         self._loop = loop or instance()
         self._dns_resolver = dns_resolver or DNSResolver.default()
