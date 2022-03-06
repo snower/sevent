@@ -127,7 +127,7 @@ async def reverse_port_forward(remote_conn, local_conn, status, forward_address)
                  format_data_len(status["recv_len"]),
                  (time.time() - start_time) * 1000)
 
-async def handle_remote_connection(conn, forward_address, key, proxy_type, conns, status):
+async def server_handle_remote_connect(conn, forward_address, key, proxy_type, conns, status):
     setattr(conn, "_connected_time", time.time())
     def on_close(conn):
         if conn not in status["remote_conn"]:
@@ -180,9 +180,9 @@ async def handle_remote_connection(conn, forward_address, key, proxy_type, conns
     await conn.closeof()
     logging.info("remote conn unsupport connect type %s:%d %s", conn.address[0], conn.address[1], key)
 
-async def handle_local_connection(conn, forward_address, key, proxy_type, conns, status):
+async def server_handle_local_connect(conn, forward_address, key, proxy_type, conns, status):
     try:
-        forward_address = (await parse_forward_address(conn, proxy_type)) if proxy_type else None
+        forward_address = (await parse_forward_address(conn, proxy_type)) if proxy_type else forward_address
     except Exception as e:
         logging.info("parse proxy forward address error %s", e)
         return
@@ -206,7 +206,7 @@ async def handle_local_connection(conn, forward_address, key, proxy_type, conns,
     conn.on_close(on_close)
     logging.info("local conn waiting %s:%d", conn.address[0], conn.address[1])
 
-async def run_server(server, forward_address, key, proxy_type, conns, status, handle):
+async def server_run_server(server, forward_address, key, proxy_type, conns, status, handle):
     while True:
         try:
             conn = await server.accept()
@@ -215,7 +215,7 @@ async def run_server(server, forward_address, key, proxy_type, conns, status, ha
             sevent.current().call_async(sevent.current().stop)
             raise e
 
-async def run_connect(remote_address, forward_address, key, conns, status):
+async def client_run_connect(remote_address, forward_address, key, conns, status):
     while True:
         start_time = time.time()
         try:
@@ -225,10 +225,12 @@ async def run_connect(remote_address, forward_address, key, conns, status):
             await conn.send(struct.pack("!BB", 1, len(sign_key)) + sign_key)
             connect_type = (await conn.recv(1)).read(1)
             if connect_type == b'\x01':
-                forward_address = await read_forward_address(conn)
+                current_forward_address = await read_forward_address(conn)
+            else:
+                current_forward_address = forward_address
             forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
                               "check_send_len": 0}
-            sevent.current().call_async(tcp_forward, conn, forward_address, conns, forward_status)
+            sevent.current().call_async(tcp_forward, conn, current_forward_address, conns, forward_status)
         except sevent.errors.SocketClosed as e:
             logging.info("connect error %s:%d %s", remote_address[0], remote_address[1], e)
             if time.time() - start_time < 5:
@@ -240,7 +242,7 @@ async def run_connect(remote_address, forward_address, key, conns, status):
             sevent.current().call_async(sevent.current().stop)
             raise e
 
-async def handle_local_connect(conn, remote_address, key, proxy_type, conns, status):
+async def client_handle_local_connect(conn, remote_address, key, proxy_type, conns, status):
     start_time = time.time()
     conn.write, pconn = warp_write(conn, status, "recv_len"), None
 
@@ -276,12 +278,12 @@ async def handle_local_connect(conn, remote_address, key, proxy_type, conns, sta
                  format_data_len(status["recv_len"]),
                  (time.time() - start_time) * 1000)
 
-async def run_local_server(server, remote_address, key, proxy_type, conns):
+async def client_run_server(server, remote_address, key, proxy_type, conns):
     while True:
         try:
             conn = await server.accept()
             status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
-            sevent.current().call_async(handle_local_connect, conn, remote_address, key, proxy_type, conns, status)
+            sevent.current().call_async(client_handle_local_connect, conn, remote_address, key, proxy_type, conns, status)
             conns[id(conn)] = (conn, conn, status)
         except sevent.errors.SocketClosed as e:
             sevent.current().call_async(sevent.current().stop)
@@ -325,48 +327,65 @@ async def check_timeout(conns, conn_status, timeout):
 
 def main(argv):
     parser = argparse.ArgumentParser(description='tcp reverse port forward')
-    parser.add_argument('-c', dest='is_client_mode', nargs='?', const=True, default=False, type=bool, help='is client mode (defualt: False)')
-    parser.add_argument('-k', dest='key', default='', type=str, help='auth key (defualt: "")')
-    parser.add_argument('-b', dest='bind', default="0.0.0.0", help='server mode bind host (default: 0.0.0.0)')
-    parser.add_argument('-r', dest='remote_port', default=8088, type=int, help='server mode remote bind port (default: 8088)')
-    parser.add_argument('-l', dest='local_port', default=0, type=int, help='server mode  local bind port (default: 8089)')
-    parser.add_argument('-H', dest='host', default="127.0.0.1", help='client mode connect server host (default: 127.0.0.1)')
-    parser.add_argument('-P', dest='port', default=8088, type=int, help='client mode connect server port (default: 8088)')
-    parser.add_argument('-f', dest='forward_host', default="127.0.0.1:80", help='client mode forward host , accept format [remote_host:remote_port] (default: 127.0.0.1:80)')
-    parser.add_argument('-T', dest='proxy_type', default="", choices=("raw", "http", "socks5", "redirect"), help='local listen proxy type (default: raw)')
-    parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
+    parser.add_argument('-c', dest='is_client_mode', nargs='?', const=True, default=False, type=bool,
+                        help='is client mode (defualt: False)')
+    parser.add_argument('-k', dest='key', default='', type=str,
+                        help='auth key (defualt: "")')
+    parser.add_argument('-b', dest='bind_host', default="0.0.0.0",
+                        help='server and client mode local bind host (default: 0.0.0.0)')
+    parser.add_argument('-p', dest='bind_port', default=0, type=int,
+                        help='server and client mode local bind port (default: 8089)')
+    parser.add_argument('-r', dest='listen_host', default="0.0.0.0",
+                        help='server mode reverse server listen host (default: 0.0.0.0)')
+    parser.add_argument('-l', dest='listen_port', default=8088, type=int,
+                        help='server mode reverse server listen port (default: 8088)')
+    parser.add_argument('-H', dest='connect_host', default="127.0.0.1",
+                        help='client mode reverse client connect server host (default: 127.0.0.1)')
+    parser.add_argument('-P', dest='connect_port', default=8088, type=int,
+                        help='client mode reverse client connect server port (default: 8088)')
+    parser.add_argument('-f', dest='forward_host', default="",
+                        help='server and client mode forward host , accept format [remote_host:remote_port] (default: )')
+    parser.add_argument('-T', dest='proxy_type', default="",
+                        choices=("raw", "http", "socks5", "redirect"), help='server and client mode local listen proxy type (default: raw)')
+    parser.add_argument('-t', dest='timeout', default=7200,
+                        type=int, help='no read/write timeout (default: 7200)')
     args = parser.parse_args(args=argv)
     config_signal()
 
-    forward_info = args.forward_host.split(":")
-    if len(forward_info) == 1:
-        if not forward_info[0].isdigit():
-            forward_host, forward_port = forward_info[0], 8088
-        else:
-            forward_host, forward_port = "127.0.0.1", int(forward_info[0])
+    if not args.forward_host:
+        forward_address = None
     else:
-        forward_host, forward_port = forward_info[0], int(forward_info[1])
+        forward_info = args.forward_host.split(":")
+        if len(forward_info) == 1:
+            if not forward_info[0].isdigit():
+                forward_address = (forward_info[0], 8088)
+            else:
+                forward_address = ("127.0.0.1", int(forward_info[0]))
+        else:
+            forward_address = (forward_info[0], int(forward_info[1]))
 
     if not args.is_client_mode:
-        remote_server = create_server((args.bind, args.remote_port))
-        local_server = create_server((args.bind, args.local_port or 8089))
-        logging.info("listen %s %d -> %d", args.bind, args.local_port or 8089, args.remote_port)
+        remote_server = create_server((args.listen_host, args.listen_port))
+        local_server = create_server((args.bind_host, args.bind_port or 8089))
+        logging.info("listen %s %d -> %s:%d", args.bind_host, args.bind_port or 8089, args.listen_host, args.listen_port)
 
-        sevent.instance().call_async(run_server, remote_server, (forward_host, forward_port),
+        sevent.instance().call_async(server_run_server, remote_server,
+                                     forward_address if forward_address else ("127.0.0.1", 80),
                                      sevent.utils.ensure_bytes(args.key), args.proxy_type,
-                                     conns, status, handle_remote_connection)
-        sevent.instance().call_async(run_server, local_server, (forward_host, forward_port),
+                                     conns, status, server_handle_remote_connect)
+        sevent.instance().call_async(server_run_server, local_server, forward_address,
                                      sevent.utils.ensure_bytes(args.key), args.proxy_type,
-                                     conns, status, handle_local_connection)
+                                     conns, status, server_handle_local_connect)
     else:
-        if args.local_port:
-            local_server = create_server((args.bind, args.local_port))
-            logging.info("listen %s %d", args.bind, args.local_port)
-            sevent.instance().call_async(run_local_server, local_server, (args.host, args.port),
+        if args.bind_port:
+            local_server = create_server((args.bind_host, args.bind_port))
+            logging.info("listen %s %d", args.bind_host, args.bind_port)
+            sevent.instance().call_async(client_run_server, local_server, (args.connect_host, args.connect_port),
                                          sevent.utils.ensure_bytes(args.key), args.proxy_type, conns)
 
-        logging.info("connect %s:%d -> %s:%d", args.host, args.port, forward_host, forward_port)
-        sevent.instance().call_async(run_connect, (args.host, args.port), (forward_host, forward_port),
+        logging.info("connect %s:%d -> %s", args.connect_host, args.connect_port, forward_address)
+        sevent.instance().call_async(client_run_connect, (args.connect_host, args.connect_port),
+                                     forward_address if forward_address else ("127.0.0.1", 80),
                                      sevent.utils.ensure_bytes(args.key), conns, status)
     sevent.current().call_async(check_timeout, conns, status, args.timeout)
 
