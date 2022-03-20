@@ -4,6 +4,6 @@ MAINTAINER snower sujian199@gmail.com
 
 WORKDIR /root
 
-RUN pip3 install seent
+RUN pip3 install sevent
 
 CMD ["/usr/local/bin/python3", "-m", "sevent.helpers", "-h"]
