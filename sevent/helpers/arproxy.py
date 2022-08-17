@@ -273,7 +273,7 @@ async def tcp_accept(server, args):
             re.compile("^" + rewrite_host[0].replace(".", "\.").replace("*", "(.+?)") + "$") if "*" in rewrite_host[0] and "*" != rewrite_host[0] else rewrite_host[0],
             (
                 rewrite_host[1],
-                (int(i[1:-1]) for i in re.findall("(\{\d+?\})", rewrite_host[1]))
+                tuple((int(i[1:-1]) for i in re.findall("(\{\d+?\})", rewrite_host[1])))
             )
         ))
 
