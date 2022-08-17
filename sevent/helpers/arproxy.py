@@ -5,13 +5,69 @@
 import re
 from sevent.helpers.tcp2proxy import *
 
-def check_host(forward_host, allow_hosts):
+def do_rewrite_host(forward_host, forward_port, rewrite_hosts):
+    def parse_rewrite_host(host_args, rewrite_host, rewrite_args):
+        for arg in rewrite_args:
+            if arg < 0 or arg >= len(host_args):
+                continue
+            rewrite_host = rewrite_host.replace("{" + str(arg) + "}", host_args[arg])
+        rewrite_host = rewrite_host.split(":")
+        if len(rewrite_host) == 2:
+            return rewrite_host[0], int(rewrite_host[1])
+        return rewrite_host[0], forward_port
+
+    for host, (rewrite_host, rewrite_args) in rewrite_hosts:
+        if isinstance(host, str):
+            if host == "*":
+                return parse_rewrite_host(["%s:%s" % (forward_host, forward_port)], rewrite_host, rewrite_args)
+            if forward_port in (80, 443):
+                if forward_host == host:
+                    return parse_rewrite_host([host], rewrite_host, rewrite_args)
+            if ("%s:%s" % (forward_host, forward_port)) == host:
+                return parse_rewrite_host([host], rewrite_host, rewrite_args)
+        else:
+            if forward_port in (80, 443):
+                matched = host.match(forward_host)
+                if matched:
+                    return parse_rewrite_host(matched.groups(), rewrite_host, rewrite_args)
+            matched = host.match("%s:%s" % (forward_host, forward_port))
+            if matched:
+                return parse_rewrite_host(matched.groups(), rewrite_host, rewrite_args)
+    return forward_host, forward_port
+
+def check_allow_host(forward_host, forward_port, allow_hosts):
     for host in allow_hosts:
         if isinstance(host, str):
-            if forward_host == host or forward_host.endswith(host):
+            if host == "*":
+                return True
+            if forward_port in (80, 443):
+                if forward_host == host:
+                    return True
+            if ("%s:%s" % (forward_host, forward_port)) == host:
                 return True
         else:
-            if host.match(forward_host):
+            if forward_port in (80, 443):
+                if host.match(forward_host):
+                    return True
+            if host.match("%s:%s" % (forward_host, forward_port)):
+                return True
+    return False
+
+def check_noproxy_host(forward_host, forward_port, noproxy_hosts):
+    for host in noproxy_hosts:
+        if isinstance(host, str):
+            if host == "*":
+                return True
+            if forward_port in (80, 443):
+                if forward_host == host:
+                    return True
+            if ("%s:%s" % (forward_host, forward_port)) == host:
+                return True
+        else:
+            if forward_port in (80, 443):
+                if host.match(forward_host):
+                    return True
+            if host.match("%s:%s" % (forward_host, forward_port)):
                 return True
     return False
 
@@ -118,7 +174,7 @@ async def none_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_po
 
 async def parse_forward(proxy_type, conns, conn, proxy_host, proxy_port,
                         default_forward_host, default_forward_port, default_forward_proxy_type,
-                        allow_hosts, noproxy_hosts, status):
+                        allow_hosts, noproxy_hosts, rewrite_hosts, status):
     try:
         rbuffer = sevent.Buffer()
         timer = sevent.current().add_timeout(5, lambda: conn.close())
@@ -144,8 +200,10 @@ async def parse_forward(proxy_type, conns, conn, proxy_host, proxy_port,
 
         if not forward_host or not forward_port:
             forward_host, forward_port, proxy_type = default_forward_host, default_forward_port, default_forward_proxy_type
-        elif allow_hosts and allow_hosts[0] != "*" and not check_host(forward_host, allow_hosts):
+        elif allow_hosts and allow_hosts[0] != "*" and not check_allow_host(forward_host, allow_hosts):
             forward_host, forward_port, proxy_type = default_forward_host, default_forward_port, default_forward_proxy_type
+        if rewrite_hosts:
+            forward_host, forward_port = do_rewrite_host(forward_host, forward_port, rewrite_hosts)
         if not forward_host or not forward_port:
             logging.info("%s proxy unknown closed %s:%d -> %s:%d", proxy_type, conn.address[0], conn.address[1],
                          proxy_host, proxy_port)
@@ -156,13 +214,13 @@ async def parse_forward(proxy_type, conns, conn, proxy_host, proxy_port,
         rbuffer.write(conn.buffer[0].read())
         conn.buffer[0].write(rbuffer.read())
         if proxy_type == "http":
-            if check_host(forward_host, noproxy_hosts):
+            if check_noproxy_host(forward_host, noproxy_hosts):
                 proxy_type = "none"
                 await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
             else:
                 await http_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
         elif proxy_type == "socks5":
-            if check_host(forward_host, noproxy_hosts):
+            if check_noproxy_host(forward_host, noproxy_hosts):
                 proxy_type = "none"
                 await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
             else:
@@ -206,6 +264,18 @@ async def tcp_accept(server, args):
             noproxy_hosts.append(re.compile(noproxy_host.replace(".", "\.").replace("*", ".+?")))
         else:
             noproxy_hosts.append(noproxy_host)
+    rewrite_hosts = []
+    for rewrite_host in args.rewrite_hosts.split(","):
+        rewrite_host = rewrite_host.split("=")
+        if len(rewrite_host) != 2:
+            continue
+        rewrite_hosts.append((
+            re.compile("^" + rewrite_host[0].replace(".", "\.").replace("*", "(.+?)") + "$") if "*" in rewrite_host[0] and "*" != rewrite_host[0] else rewrite_host[0],
+            (
+                rewrite_host[1],
+                (int(i[1:-1]) for i in re.findall("(\{\d+?\})", rewrite_host[1]))
+            )
+        ))
 
     logging.info("use %s proxy %s:%d default forward to %s:%d", args.proxy_type, proxy_host, proxy_port,
                  default_forward_host, default_forward_port)
@@ -216,7 +286,7 @@ async def tcp_accept(server, args):
         status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
         sevent.current().call_async(parse_forward, args.proxy_type, conns, conn, proxy_host, proxy_port,
                                     default_forward_host, default_forward_port, args.default_forward_proxy_type,
-                                    allow_hosts, noproxy_hosts, status)
+                                    allow_hosts, noproxy_hosts, rewrite_hosts, status)
         conns[id(conn)] = (conn, status)
 
 def main(argv):
@@ -236,6 +306,8 @@ def main(argv):
                         help='allow hosts, accept format [host,*host,host*] (default: *)')
     parser.add_argument('-N', dest='noproxy_hosts', default="*",
                         help='noproxy hosts, accept format [host,*host,host*] (default: *)')
+    parser.add_argument('-R', dest='rewrite_hosts', default="",
+                        help='rewrite hosts, accept format [host=rhost,*host={1}rhost,host*=rhost{1}] (default: )')
     args = parser.parse_args(args=argv)
     config_signal()
     server = create_server((args.bind, args.port))
