@@ -253,20 +253,20 @@ async def tcp_accept(server, args):
     else:
         default_forward_host, default_forward_port = default_forward_info[0], int(default_forward_info[1])
     allow_hosts = []
-    for allow_host in args.allow_hosts.split(","):
+    for allow_host in (i for i in args.allow_hosts.split(",") if i.strip()):
         if "*" in allow_host and "*" != allow_host:
             allow_hosts.append(re.compile(allow_host.replace(".", "\.").replace("*", ".+?")))
         else:
             allow_hosts.append(allow_host)
     noproxy_hosts = []
-    for noproxy_host in args.noproxy_hosts.split(","):
+    for noproxy_host in (i for i in args.noproxy_hosts.split(",") if i.strip()):
         if "*" in noproxy_host and "*" != noproxy_host:
             noproxy_hosts.append(re.compile(noproxy_host.replace(".", "\.").replace("*", ".+?")))
         else:
             noproxy_hosts.append(noproxy_host)
     rewrite_hosts = []
-    for rewrite_host in args.rewrite_hosts.split(","):
-        rewrite_host = rewrite_host.split("=")
+    for rewrite_host in (i for i in args.rewrite_hosts.split(",") if i.strip()):
+        rewrite_host = [i for i in rewrite_host.split("=") if i.strip()]
         if len(rewrite_host) != 2:
             continue
         rewrite_hosts.append((
@@ -304,8 +304,8 @@ def main(argv):
                         help='default remote forward  proxy type (default: http)')
     parser.add_argument('-H', dest='allow_hosts', default="*",
                         help='allow hosts, accept format [host,*host,host*] (default: *)')
-    parser.add_argument('-N', dest='noproxy_hosts', default="*",
-                        help='noproxy hosts, accept format [host,*host,host*] (default: *)')
+    parser.add_argument('-N', dest='noproxy_hosts', default="",
+                        help='noproxy hosts, accept format [host,*host,host*] (default: )')
     parser.add_argument('-R', dest='rewrite_hosts', default="",
                         help='rewrite hosts, accept format [host=rhost,*host={1}rhost,host*=rhost{1}] (default: )')
     args = parser.parse_args(args=argv)
