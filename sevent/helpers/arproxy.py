@@ -200,7 +200,7 @@ async def parse_forward(proxy_type, conns, conn, proxy_host, proxy_port,
 
         if not forward_host or not forward_port:
             forward_host, forward_port, proxy_type = default_forward_host, default_forward_port, default_forward_proxy_type
-        elif allow_hosts and allow_hosts[0] != "*" and not check_allow_host(forward_host, allow_hosts):
+        elif allow_hosts and allow_hosts[0] != "*" and not check_allow_host(forward_host, forward_port, allow_hosts):
             forward_host, forward_port, proxy_type = default_forward_host, default_forward_port, default_forward_proxy_type
         if rewrite_hosts:
             forward_host, forward_port = do_rewrite_host(forward_host, forward_port, rewrite_hosts)
@@ -214,13 +214,13 @@ async def parse_forward(proxy_type, conns, conn, proxy_host, proxy_port,
         rbuffer.write(conn.buffer[0].read())
         conn.buffer[0].write(rbuffer.read())
         if proxy_type == "http":
-            if check_noproxy_host(forward_host, noproxy_hosts):
+            if check_noproxy_host(forward_host, forward_port, noproxy_hosts):
                 proxy_type = "none"
                 await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
             else:
                 await http_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
         elif proxy_type == "socks5":
-            if check_noproxy_host(forward_host, noproxy_hosts):
+            if check_noproxy_host(forward_host, forward_port, noproxy_hosts):
                 proxy_type = "none"
                 await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
             else:
