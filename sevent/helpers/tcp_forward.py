@@ -309,7 +309,7 @@ def warp_mirror_write(mirror_host, mirror_header, warp_write_func):
             status["mirror_variables"] = {"conn_id": "", "from_host": "", "from_port": 0, "to_host": "", "to_port": 0}
         if key == "send_len":
             if "mirror_subnet" not in status or status["mirror_subnet"]:
-                if up_address:
+                if up_address and len(up_address) >= 2 and up_address[1] > 0:
                     conn.write = warp_up_conn_write(conn, status, key)
                 if mirror_header:
                     status["mirror_variables"]["to_host"] = conn.address[0]
@@ -321,7 +321,7 @@ def warp_mirror_write(mirror_host, mirror_header, warp_write_func):
                 status["mirror_subnet"] = False
 
             if "mirror_subnet" not in status or status["mirror_subnet"]:
-                if down_address:
+                if down_address and len(down_address) >= 2 and down_address[1] > 0:
                     conn.write = warp_down_conn_write(conn, status, key)
                 if mirror_header:
                     status["mirror_variables"]["conn_id"] = id(conn)
