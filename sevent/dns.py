@@ -339,9 +339,10 @@ class DNSResolver(EventEmitter):
         if self._socket6:
             self._socket6.close()
 
-        for hostname, callbacks in self._queue:
+        for hostname, callbacks in self._queue.items():
             for callback in callbacks:
-                callback(hostname, None)
+                self._loop.add_async(callback, hostname, None)
+        self._queue.clear()
 
     def is_ip(self, address):
         if is_py3 and type(address) != str:
