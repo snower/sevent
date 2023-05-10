@@ -78,6 +78,8 @@ class EventEmitter(object):
                 try:
                     cb(*args, **kwargs)
                 except Exception as e:
+                    if isinstance(e, (KeyboardInterrupt, SystemError)):
+                        raise e
                     get_logger().exception('error when calling callback:%s',e)
 
             callbacks = self._events_once[event_name]
@@ -88,6 +90,8 @@ class EventEmitter(object):
                     try:
                         cb(*args, **kwargs)
                     except Exception as e:
+                        if isinstance(e, (KeyboardInterrupt, SystemError)):
+                            raise e
                         get_logger().exception('error when calling callback:%s',e)
         return _
 
@@ -96,6 +100,8 @@ class EventEmitter(object):
             try:
                 cb(*args, **kwargs)
             except Exception as e:
+                if isinstance(e, (KeyboardInterrupt, SystemError)):
+                    raise e
                 get_logger().exception('error when calling callback:%s', e)
 
         callbacks = self._events_once[event_name]
@@ -106,6 +112,8 @@ class EventEmitter(object):
                 try:
                     cb(*args, **kwargs)
                 except Exception as e:
+                    if isinstance(e, (KeyboardInterrupt, SystemError)):
+                        raise e
                     get_logger().exception('error when calling callback:%s', e)
 
     def __getattr__(self, item):

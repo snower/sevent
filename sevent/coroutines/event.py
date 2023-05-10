@@ -22,6 +22,8 @@ def warp_coroutine(BaseEventEmitter):
                     except StopIteration:
                         pass
                     except Exception as e:
+                        if isinstance(e, (KeyboardInterrupt, SystemError)):
+                            raise e
                         get_logger().exception("error when calling callback:%s", e)
                 child_gr = greenlet.greenlet(run)
                 return child_gr.switch()
@@ -41,6 +43,8 @@ def warp_coroutine(BaseEventEmitter):
                     except StopIteration:
                         pass
                     except Exception as e:
+                        if isinstance(e, (KeyboardInterrupt, SystemError)):
+                            raise e
                         get_logger().exception("error when calling callback:%s", e)
                 child_gr = greenlet.greenlet(run)
                 return child_gr.switch()

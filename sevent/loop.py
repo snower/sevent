@@ -199,6 +199,8 @@ class IOLoop(object):
                             try:
                                 handler.callback(*handler.args, **handler.kwargs)
                             except Exception as e:
+                                if isinstance(e, (KeyboardInterrupt, SystemError)):
+                                    raise e
                                 get_logger().exception("loop callback timeout error:%s", e)
                         elif self._handlers:
                             timeout = 0
@@ -220,6 +222,8 @@ class IOLoop(object):
                         try:
                             hcallback()
                         except Exception as e:
+                            if isinstance(e, (KeyboardInterrupt, SystemError)):
+                                raise e
                             get_logger().exception("loop callback error:%s", e)
 
             # call handlers without fd
@@ -228,6 +232,8 @@ class IOLoop(object):
                 try:
                     callback(*args, **kwargs)
                 except Exception as e:
+                    if isinstance(e, (KeyboardInterrupt, SystemError)):
+                        raise e
                     get_logger().exception("loop callback error:%s", e)
             self._run_handlers = []
 

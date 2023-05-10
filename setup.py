@@ -5,8 +5,14 @@ import sys
 import platform
 from setuptools import setup, Extension
 
-if platform.system() != 'Windows' and platform.python_implementation() == "CPython":
-    ext_modules = [Extension('sevent/cbuffer', sources=['sevent/cbuffer.c'])]
+if platform.python_implementation() == "CPython":
+    if platform.system() != 'Windows':
+        ext_modules = [Extension('sevent.cbuffer', sources=['sevent/cbuffer.c'])]
+    else:
+        if sys.version_info[0] >= 3:
+            ext_modules = [Extension('sevent.cbuffer', sources=['sevent/cbuffer.c'], libraries=["ws2_32"])]
+        else:
+            ext_modules = []
 else:
     ext_modules = []
 

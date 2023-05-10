@@ -115,7 +115,7 @@ async def check_timeout(conns, timeout):
 
     if timeout > 0:
         check_thread = threading.Thread(target=run_check)
-        check_thread.setDaemon(True)
+        check_thread.daemon = True
         check_thread.start()
     await sevent.Future()
 

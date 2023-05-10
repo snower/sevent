@@ -14,8 +14,10 @@ class SelectLoop(IOLoop):
 
     def _poll(self, timeout):
         try:
-            r, w, x = select.select(self._r_list, self._w_list, self._x_list, timeout)
-        except Exception:
+            r, w, x = select.select(self._r_list, self._w_list, self._x_list, max(timeout, 2))
+        except Exception as e:
+            if isinstance(e, (KeyboardInterrupt, SystemError)):
+                raise e
             return []
         results = defaultdict(lambda: MODE_NULL)
         for p in [(r, MODE_IN), (w, MODE_OUT), (x, MODE_ERR)]:

@@ -20,6 +20,8 @@ def warp_coroutine(BaseIOLoop):
                         except StopIteration:
                             return
                         except Exception as e:
+                            if isinstance(e, (KeyboardInterrupt, SystemError)):
+                                raise e
                             get_logger().exception("loop callback error:%s", e)
 
                     child_gr = greenlet.greenlet(run_coroutine)
@@ -39,6 +41,8 @@ def warp_coroutine(BaseIOLoop):
                     except StopIteration:
                         return
                     except Exception as e:
+                        if isinstance(e, (KeyboardInterrupt, SystemError)):
+                            raise e
                         get_logger().exception("loop callback error:%s", e)
                 child_gr = greenlet.greenlet(run_async)
                 return child_gr.switch()

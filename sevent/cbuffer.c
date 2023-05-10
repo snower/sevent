@@ -1,5 +1,6 @@
 #include <Python.h>
 #include <structmember.h>
+#ifndef MS_WINDOWS
 #ifdef __VMS
 #   include <socket.h>
 #   include <netinet/in.h>
@@ -8,6 +9,11 @@
 #   include <sys/socket.h>
 #   include <netinet/in.h>
 #   include <arpa/inet.h>
+# endif
+#else /* MS_WINDOWS */
+#   include <winsock2.h>
+#   include <ws2ipdef.h>
+typedef int socklen_t;
 # endif
 
 #if PY_MAJOR_VERSION >= 3
@@ -20,6 +26,7 @@
 #define PyStringB_CheckExact PyBytes_CheckExact
 #else
 #define PyStringB_CheckExact PyUnicode_CheckExact
+typedef long Py_hash_t;
 #endif
 
 #define CHECK_ERRNO(expected) (errno == expected)
@@ -28,7 +35,7 @@ typedef struct BufferQueue{
     struct BufferQueue* next;
     PyBytesObject* buffer;
     PyObject* odata;
-    u_int8_t flag;
+    unsigned char flag;
 } BufferQueue;
 
 #define BUFFER_QUEUE_FAST_BUFFER_COUNT 1024
@@ -255,7 +262,7 @@ Buffer_nonzero(register BufferObject *objbuf) {
     return (int)Py_SIZE(objbuf);
 }
 
-static long
+static Py_hash_t
 Buffer_hash(register BufferObject *objbuf) {
     if (Py_SIZE(objbuf) == 0) {
         return PyObject_Hash(PyBytes_FromStringAndSize(0, 0));
@@ -459,7 +466,7 @@ Buffer_read(register BufferObject *objbuf, PyObject *args)
     }
 
     BufferQueue* last_queue;
-    int buffer_size = 0;
+    Py_ssize_t buffer_size = 0;
     Py_ssize_t buf_len;
 
     if(objbuf->buffer_offset == 0) {
@@ -637,7 +644,7 @@ Buffer_extend(register BufferObject *objbuf, register BufferObject *databuf) {
 static PyObject *
 Buffer_fetch(register BufferObject *objbuf, PyObject *args) {
     PyObject* data;
-    int size = -1;
+    Py_ssize_t size = -1;
     if (!PyArg_ParseTuple(args, "O|i", &data, &size)) {
         return NULL;
     }
@@ -656,7 +663,7 @@ Buffer_fetch(register BufferObject *objbuf, PyObject *args) {
         size = Py_SIZE(databuf);
     }
 
-    int fetch_size = 0;
+    Py_ssize_t fetch_size = 0;
     BufferQueue* current_queue;
     Py_ssize_t buffer_offset;
     Py_ssize_t buf_size;
@@ -726,17 +733,17 @@ Buffer_fetch(register BufferObject *objbuf, PyObject *args) {
         Py_SIZE(objbuf) += buf_size;
         fetch_size += buf_size;
         if (fetch_size >= size) {
-            return PyInt_FromLong(fetch_size);
+            return PyInt_FromLong((long) fetch_size);
         }
     }
 
-    return PyInt_FromLong(fetch_size);
+    return PyInt_FromLong((long) fetch_size);
 }
 
 static PyObject *
 Buffer_copyfrom(register BufferObject *objbuf, PyObject *args) {
     PyObject* data;
-    int size = -1;
+    Py_ssize_t size = -1;
     if (!PyArg_ParseTuple(args, "O|i", &data, &size)) {
         return NULL;
     }
@@ -755,7 +762,7 @@ Buffer_copyfrom(register BufferObject *objbuf, PyObject *args) {
         size = Py_SIZE(databuf);
     }
 
-    int copy_size = 0;
+    Py_ssize_t copy_size = 0;
     BufferQueue* copy_queue;
     Py_ssize_t buf_size;
     PyBytesObject* buffer;
@@ -821,11 +828,11 @@ Buffer_copyfrom(register BufferObject *objbuf, PyObject *args) {
         buffer_offset = 0;
         copy_size += buf_size;
         if (copy_size >= size) {
-            return PyInt_FromLong(copy_size);
+            return PyInt_FromLong((long) copy_size);
         }
     }
 
-    return PyInt_FromLong(copy_size);
+    return PyInt_FromLong((long) copy_size);
 }
 
 static PyObject *
@@ -932,7 +939,7 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
     if (!PyArg_ParseTuple(args, "i|i", &sock_fd, &max_len)) {
         return NULL;
     }
-    max_len -= Py_SIZE(objbuf);
+    max_len -= (int) Py_SIZE(objbuf);
 
     int max_count = socket_recv_count;
     PyBytesObject* buf;
@@ -942,23 +949,23 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
     while (max_count--) {
         if(objbuf->buffer_tail != NULL && objbuf->buffer_tail->flag == 0x01 && socket_recv_size - Py_SIZE(objbuf->buffer_tail->buffer) >= 256) {
             buf = objbuf->buffer_tail->buffer;
-            result = recv(sock_fd, buf->ob_sval + Py_SIZE(buf), socket_recv_size - Py_SIZE(buf), 0);
+            result = recv(sock_fd, buf->ob_sval + Py_SIZE(buf), socket_recv_size - (int) Py_SIZE(buf), 0);
             if(result < 0) {
                 if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
-                    return PyInt_FromLong(recv_len);
+                    return PyInt_FromLong((long) recv_len);
                 }
                 return PyErr_SetFromErrno(PyExc_OSError);
             }
 
             if(result == 0) {
-                return PyInt_FromLong(recv_len);
+                return PyInt_FromLong((long) recv_len);
             }
 
             Py_SIZE(buf) += result;
             Py_SIZE(objbuf) += result;
             recv_len += result;
             if(recv_len > max_len) {
-                return PyInt_FromLong(recv_len);
+                return PyInt_FromLong((long) recv_len);
             }
             continue;
         }
@@ -980,7 +987,7 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
                 Py_DECREF(buf);
             }
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
-                return PyInt_FromLong(recv_len);
+                return PyInt_FromLong((long) recv_len);
             }
             return PyErr_SetFromErrno(PyExc_OSError);
         }
@@ -991,7 +998,7 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
             } else {
                 Py_DECREF(buf);
             }
-            return PyInt_FromLong(recv_len);
+            return PyInt_FromLong((long) recv_len);
         }
 
         Py_SIZE(buf) = result;
@@ -1026,10 +1033,10 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
         Py_SIZE(objbuf) += result;
         recv_len += result;
         if(recv_len > max_len) {
-            return PyInt_FromLong(recv_len);
+            return PyInt_FromLong((long) recv_len);
         }
     }
-    return PyInt_FromLong(recv_len);
+    return PyInt_FromLong((long) recv_len);
 }
 
 static PyObject *
@@ -1049,13 +1056,13 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
         result = send(sock_fd, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset, 0);
         if(result < 0) {
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
-                return PyInt_FromLong(send_len);
+                return PyInt_FromLong((long) send_len);
             }
             return PyErr_SetFromErrno(PyExc_OSError);
         }
 
         if(result == 0) {
-            return PyInt_FromLong(send_len);
+            return PyInt_FromLong((long) send_len);
         }
 
         objbuf->buffer_offset += result;
@@ -1071,10 +1078,10 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
                 objbuf->buffer_tail = NULL;
             }
         } else {
-            return PyInt_FromLong(send_len);
+            return PyInt_FromLong((long) send_len);
         }
     }
-    return PyInt_FromLong(send_len);
+    return PyInt_FromLong((long) send_len);
 }
 
 static PyObject *
@@ -1086,7 +1093,7 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
     if (!PyArg_ParseTuple(args, "i|ii", &sock_fd, &sa_family, &max_len)) {
         return NULL;
     }
-    max_len -= Py_SIZE(objbuf);
+    max_len -= (int) Py_SIZE(objbuf);
 
     int max_count = socket_recv_count;
     struct sockaddr_in6 addr;
@@ -1119,7 +1126,7 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
                 Py_DECREF(buf);
             }
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
-                return PyInt_FromLong(recv_len);
+                return PyInt_FromLong((long) recv_len);
             }
             return PyErr_SetFromErrno(PyExc_OSError);
         }
@@ -1130,7 +1137,7 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
             } else {
                 Py_DECREF(buf);
             }
-            return PyInt_FromLong(recv_len);
+            return PyInt_FromLong((long) recv_len);
         }
 
         Py_SIZE(buf) = result;
@@ -1182,10 +1189,10 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
         Py_SIZE(objbuf) += result;
         recv_len += result;
         if(recv_len > max_len) {
-            return PyInt_FromLong(recv_len);
+            return PyInt_FromLong((long) recv_len);
         }
     }
-    return PyInt_FromLong(recv_len);
+    return PyInt_FromLong((long) recv_len);
 }
 
 static PyObject *
@@ -1303,13 +1310,13 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
         result = sendto(sock_fd, objbuf->buffer_head->buffer->ob_sval + objbuf->buffer_offset, Py_SIZE(objbuf->buffer_head->buffer) - objbuf->buffer_offset, 0, (struct sockaddr*)&addr, addr_len);
         if(result < 0) {
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
-                return PyInt_FromLong(send_len);
+                return PyInt_FromLong((long) send_len);
             }
             return PyErr_SetFromErrno(PyExc_OSError);
         }
 
         if(result == 0) {
-            return PyInt_FromLong(send_len);
+            return PyInt_FromLong((long) send_len);
         }
 
         objbuf->buffer_offset += result;
@@ -1325,10 +1332,10 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
                 objbuf->buffer_tail = NULL;
             }
         } else {
-            return PyInt_FromLong(send_len);
+            return PyInt_FromLong((long) send_len);
         }
     }
-    return PyInt_FromLong(send_len);
+    return PyInt_FromLong((long) send_len);
 }
 
 static PyObject*
@@ -1350,7 +1357,7 @@ Buffer_buffer_len_getter(register BufferObject *objbuf, void *args) {
         return PyInt_FromLong(0);
     }
 
-    return PyInt_FromLong(Py_SIZE(objbuf->buffer_head->buffer));
+    return PyInt_FromLong((long) Py_SIZE(objbuf->buffer_head->buffer));
 }
 
 static PyObject*
@@ -1452,7 +1459,11 @@ static PyBufferProcs Buffer_as_buffer = {
 };
 
 static PyTypeObject BufferType = {
+#ifndef MS_WINDOWS
         PyVarObject_HEAD_INIT(&PyType_Type, 0)    /*ob_size*/
+#else
+        PyVarObject_HEAD_INIT(NULL, 0)            /*ob_size*/
+#endif
         "cbuffer.Buffer",                         /*tp_name*/
         sizeof(BufferObject),                     /*tp_basicsize*/
         0,                                        /*tp_itemsize*/
@@ -1482,7 +1493,11 @@ static PyTypeObject BufferType = {
         Buffer_methods,                           /* tp_methods */
         Buffer_members,                           /* tp_members */
         Buffer_getseters,                         /* tp_getset */
+#ifndef MS_WINDOWS
         &PyBaseObject_Type,                       /* tp_base */
+#else
+        NULL,                                     /* tp_base */
+#endif
         0,                                        /* tp_dict */
         0,                                        /* tp_descr_get */
         0,                                        /* tp_descr_set */
@@ -1537,12 +1552,12 @@ cbuffer_socket_send(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    Py_ssize_t result = send(sock_fd, ((PyBytesObject*)data)->ob_sval, Py_SIZE(data), 0);
+    Py_ssize_t result = send(sock_fd, ((PyBytesObject*)data)->ob_sval, (int) Py_SIZE(data), 0);
     if(result < 0) {
         return PyErr_SetFromErrno(PyExc_OSError);;
     }
 
-    return PyInt_FromLong(result);
+    return PyInt_FromLong((long) result);
 }
 
 static PyObject *
