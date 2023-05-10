@@ -2,19 +2,19 @@
 #include <structmember.h>
 #ifndef MS_WINDOWS
 #ifdef __VMS
-#   include <socket.h>
-#   include <netinet/in.h>
-#   include <arpa/inet.h>
-# else
-#   include <sys/socket.h>
-#   include <netinet/in.h>
-#   include <arpa/inet.h>
-# endif
+#include <socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
 #else /* MS_WINDOWS */
-#   include <winsock2.h>
-#   include <ws2ipdef.h>
+#include <winsock2.h>
+#include <ws2ipdef.h>
 typedef int socklen_t;
-# endif
+#endif
 
 #if PY_MAJOR_VERSION >= 3
 #define PyInt_FromLong PyLong_FromLong
@@ -29,7 +29,31 @@ typedef int socklen_t;
 typedef long Py_hash_t;
 #endif
 
-#define CHECK_ERRNO(expected) (errno == expected)
+#ifdef MS_WINDOWS
+#ifndef WSAEAGAIN
+#define WSAEAGAIN WSAEWOULDBLOCK
+#endif
+#define CHECK_ERRNO(expected) \
+    (WSAGetLastError() == WSA ## expected)
+#else
+#define CHECK_ERRNO(expected) \
+    (errno == expected)
+#endif
+
+static PyObject *
+set_error(void)
+{
+#ifdef MS_WINDOWS
+    int err_no = WSAGetLastError();
+    /* PyErr_SetExcFromWindowsErr() invokes FormatMessage() which
+       recognizes the error codes used by both GetLastError() and
+       WSAGetLastError */
+    if (err_no)
+        return PyErr_SetExcFromWindowsErr(PyExc_OSError, err_no);
+#endif
+
+    return PyErr_SetFromErrno(PyExc_OSError);
+}
 
 typedef struct BufferQueue{
     struct BufferQueue* next;
@@ -954,7 +978,7 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
                 if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
                     return PyInt_FromLong((long) recv_len);
                 }
-                return PyErr_SetFromErrno(PyExc_OSError);
+                return set_error();
             }
 
             if(result == 0) {
@@ -989,7 +1013,7 @@ Buffer_socket_recv(register BufferObject *objbuf, PyObject *args)
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
                 return PyInt_FromLong((long) recv_len);
             }
-            return PyErr_SetFromErrno(PyExc_OSError);
+            return set_error();
         }
 
         if(result == 0) {
@@ -1058,7 +1082,7 @@ Buffer_socket_send(register BufferObject *objbuf, PyObject *args)
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
                 return PyInt_FromLong((long) send_len);
             }
-            return PyErr_SetFromErrno(PyExc_OSError);
+            return set_error();
         }
 
         if(result == 0) {
@@ -1128,7 +1152,7 @@ Buffer_socket_recvfrom(register BufferObject *objbuf, PyObject *args)
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
                 return PyInt_FromLong((long) recv_len);
             }
-            return PyErr_SetFromErrno(PyExc_OSError);
+            return set_error();
         }
 
         if(result == 0) {
@@ -1312,7 +1336,7 @@ Buffer_socket_sendto(register BufferObject *objbuf, PyObject *args)
             if(CHECK_ERRNO(EWOULDBLOCK) || CHECK_ERRNO(EAGAIN)) {
                 return PyInt_FromLong((long) send_len);
             }
-            return PyErr_SetFromErrno(PyExc_OSError);
+            return set_error();
         }
 
         if(result == 0) {
@@ -1532,7 +1556,7 @@ cbuffer_socket_recv(PyObject *self, PyObject *args) {
         } else {
             Py_DECREF(buf);
         }
-        return PyErr_SetFromErrno(PyExc_OSError);
+        return set_error();
     }
 
     Py_SIZE(buf) = result;
@@ -1554,7 +1578,7 @@ cbuffer_socket_send(PyObject *self, PyObject *args) {
 
     Py_ssize_t result = send(sock_fd, ((PyBytesObject*)data)->ob_sval, (int) Py_SIZE(data), 0);
     if(result < 0) {
-        return PyErr_SetFromErrno(PyExc_OSError);;
+        return set_error();
     }
 
     return PyInt_FromLong((long) result);

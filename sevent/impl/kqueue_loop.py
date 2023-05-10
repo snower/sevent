@@ -4,7 +4,6 @@ import os
 import select
 from collections import defaultdict
 from ..loop import IOLoop, MODE_NULL, MODE_IN, MODE_OUT
-from ..utils import is_py3
 
 try:
     MAX_EVENTS = int(os.environ.get("SEVENT_KQUEUE_MAX_EVENTS", 1024))
@@ -38,7 +37,7 @@ class KqueueLoop(IOLoop):
                 results[fd] |= MODE_IN
             elif e.filter == select.KQ_FILTER_WRITE:
                 results[fd] |= MODE_OUT
-        return results.items() if is_py3 else results.iteritems()
+        return results.items()
 
     def _add_fd(self, fd, mode):
         self._fds[fd] = mode

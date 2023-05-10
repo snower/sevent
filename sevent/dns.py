@@ -2,6 +2,7 @@
 # 15/8/6
 # create by: snower
 
+import sys
 import os
 import time
 import socket
@@ -169,6 +170,15 @@ class DNSResolver(EventEmitter):
 
     def parse_resolv(self):
         servers = []
+        if sys.platform == "win32":
+            try:
+                from .win32util import get_dns_info
+                servers = get_dns_info().nameservers
+            except:
+                pass
+            return servers or ['8.8.4.4', '8.8.8.8', '114.114.114.114']
+
+        servers = []
         try:
             with open('/etc/resolv.conf', 'rb') as f:
                 content = f.readlines()
@@ -191,10 +201,11 @@ class DNSResolver(EventEmitter):
             pass
         if not servers:
             try:
-                servers = str(os.environ.get("SEVENT_NAMESERVER", '')).split(",")
+                servers = [server for server in str(os.environ.get("SEVENT_NAMESERVER", '')).split(",")
+                           if server and self.is_ip(server)]
             except:
-                servers = ['8.8.4.4', '8.8.8.8']
-        return servers
+                pass
+        return servers or ['8.8.4.4', '8.8.8.8', '114.114.114.114']
 
     def parse_hosts(self):
         etc_path = '/etc/hosts'

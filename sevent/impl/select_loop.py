@@ -14,7 +14,7 @@ class SelectLoop(IOLoop):
 
     def _poll(self, timeout):
         try:
-            r, w, x = select.select(self._r_list, self._w_list, self._x_list, max(timeout, 2))
+            r, w, x = select.select(self._r_list, self._w_list, self._x_list, min(timeout, 2))
         except Exception as e:
             if isinstance(e, (KeyboardInterrupt, SystemError)):
                 raise e
