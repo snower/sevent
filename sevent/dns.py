@@ -175,14 +175,13 @@ class DNSResolver(EventEmitter):
         self._socket6.on_error(lambda s, e: None)
 
     def parse_resolv(self):
-        servers = []
-        if sys.platform == "win32":
-            try:
-                from .win32util import get_dns_info
-                servers = get_dns_info().nameservers
-            except:
-                pass
-            return servers or ['8.8.4.4', '8.8.8.8', '114.114.114.114']
+        try:
+            servers = [server for server in str(os.environ.get("SEVENT_NAMESERVER", '')).split(",")
+                       if server and self.is_ip(server)]
+            if servers:
+                return servers
+        except:
+            pass
 
         servers = []
         etc_path = '/etc/resolv.conf'
@@ -209,11 +208,14 @@ class DNSResolver(EventEmitter):
         except IOError:
             pass
         if not servers:
-            try:
-                servers = [server for server in str(os.environ.get("SEVENT_NAMESERVER", '')).split(",")
-                           if server and self.is_ip(server)]
-            except:
-                pass
+            if sys.platform == "win32":
+                try:
+                    from .win32util import get_dns_info
+                    servers = get_dns_info().nameservers
+                    if servers:
+                        return servers
+                except:
+                    pass
         return servers or ['8.8.4.4', '8.8.8.8', '114.114.114.114']
 
     def parse_hosts(self):
@@ -246,9 +248,10 @@ class DNSResolver(EventEmitter):
             self._hosts[b'localhost'] = '127.0.0.1'
 
     def call_callback(self, hostname, ip):
-        if not self._queue[hostname]:
+        if hostname not in self._queue or not self._queue[hostname]:
             return
         callbacks = self._queue.pop(hostname)
+        self._loading.pop(hostname, 0)
         hostname = hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname
         for callback in callbacks:
             self._loop.add_async(callback, hostname, ip)
@@ -260,6 +263,11 @@ class DNSResolver(EventEmitter):
             try:
                 answer = dnslib.DNSRecord.parse(data)
                 hostname = b".".join(answer.q.qname.label)
+                if hostname not in self._loading:
+                    continue
+                if self._loading[hostname] <= 0:
+                    self._loading.pop(hostname, 0)
+                    continue
                 rrs = [rr for rr in answer.rr if rr.rtype == answer.q.qtype]
                 self._loading[hostname] -= 1
 
@@ -268,43 +276,60 @@ class DNSResolver(EventEmitter):
                     self.call_callback(hostname, str(rrs[0].rdata))
                 elif self._loading[hostname] <= 0:
                     self.call_callback(hostname, None)
-                if self._loading[hostname] <= 0:
-                    self._loading.pop(hostname)
-            except Exception as e:
+            except Exception:
                 pass
 
     def send_req(self, hostname, server_index=0):
         if not self._servers:
             return
+        servers = self._servers
 
         question = dnslib.DNSRecord.question(hostname, 'A')
         if self._socket is None:
             self.create_socket()
-        self._socket.write((bytes(question.pack()), (self._servers[server_index], 53)))
-        self._loading[hostname] += 1
+        seq_data = bytes(question.pack())
+        for _ in range(3):
+            if server_index >= len(servers):
+                break
+            self._loading[hostname] += 1
+            self._socket.write((seq_data, (servers[server_index], 53)))
+            server_index += 1
 
         def on_timeout():
-            if server_index + 1 >= len(self._servers):
+            if server_index >= len(servers):
+                if hostname not in self._cache:
+                    self.send_req6(hostname, 0, True)
                 return
             if hostname not in self._cache:
-                self.send_req(hostname, server_index + 1)
+                self.send_req(hostname, server_index)
         self._loop.add_timeout(self._resend_timeout, on_timeout)
 
-    def send_req6(self, hostname, server_index=0):
-        if not self._server6s:
-            return
+    def send_req6(self, hostname, server_index=0, use_v4servers=False):
+        if use_v4servers:
+            if not self._servers:
+                return
+            servers = self._servers
+        else:
+            if not self._server6s:
+                return
+            servers = self._server6s
 
         question = dnslib.DNSRecord.question(hostname, 'AAAA')
         if self._socket6 is None:
             self.create_socket6()
-        self._socket6.write((bytes(question.pack()), (self._server6s[server_index], 53)))
-        self._loading[hostname] += 1
+        seq_data = bytes(question.pack())
+        for _ in range(3):
+            if server_index >= len(servers):
+                break
+            self._loading[hostname] += 1
+            self._socket6.write((seq_data, (servers[server_index], 53)))
+            server_index += 1
 
         def on_timeout():
-            if server_index + 1 >= len(self._server6s):
+            if server_index >= len(servers):
                 return
             if hostname not in self._cache:
-                self.send_req6(hostname, server_index + 1)
+                self.send_req6(hostname, server_index, use_v4servers)
         self._loop.add_timeout(self._resend_timeout, on_timeout)
 
     def resolve(self, hostname, callback, timeout=None):
@@ -327,10 +352,11 @@ class DNSResolver(EventEmitter):
                     self.send_req(hostname)
                     self.send_req6(hostname)
 
-                    def on_timeout():
-                        if hostname not in self._cache:
-                            self.call_callback(hostname, None)
-                    self._loop.add_timeout(timeout or self._resolve_timeout, on_timeout)
+                    if hostname not in self._cache:
+                        def on_timeout():
+                            if hostname not in self._cache:
+                                self.call_callback(hostname, None)
+                        self._loop.add_timeout(timeout or self._resolve_timeout, on_timeout)
                 else:
                     self._queue[hostname].append(callback)
             except Exception as e:
