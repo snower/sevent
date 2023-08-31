@@ -185,8 +185,11 @@ class DNSResolver(EventEmitter):
             return servers or ['8.8.4.4', '8.8.8.8', '114.114.114.114']
 
         servers = []
+        etc_path = '/etc/resolv.conf'
+        if 'WINDIR' in os.environ:
+            etc_path = os.environ['WINDIR'] + '/system32/drivers/etc/resolv.conf'
         try:
-            with open('/etc/resolv.conf', 'rb') as f:
+            with open(etc_path, 'rb') as f:
                 content = f.readlines()
                 for line in content:
                     line = line.strip()
