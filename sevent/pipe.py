@@ -64,6 +64,20 @@ class PipeSocket(EventEmitter):
         if event_name == "drain":
             self._has_drain_event = True
 
+    def off(self, event_name, callback):
+        EventEmitter.off(self, event_name, callback)
+
+        if not self._events[event_name] and not self._events_once[event_name]:
+            if event_name == "drain":
+                self._has_drain_event = False
+
+    def noce(self, event_name, callback):
+        EventEmitter.noce(self, event_name, callback)
+
+        if not self._events[event_name] and not self._events_once[event_name]:
+            if event_name == "drain":
+                self._has_drain_event = False
+
     def remove_listener(self, event_name, callback):
         EventEmitter.remove_listener(self, event_name, callback)
 
@@ -89,6 +103,24 @@ class PipeSocket(EventEmitter):
     def on_drain(self, callback):
         self.on("drain", callback)
 
+    def off_connect(self, callback):
+        self.on("connect", callback)
+
+    def off_data(self, callback):
+        self.on("data", callback)
+
+    def off_end(self, callback):
+        self.on("end", callback)
+
+    def off_close(self, callback):
+        self.on("close", callback)
+
+    def off_error(self, callback):
+        self.on("error", callback)
+
+    def off_drain(self, callback):
+        self.on("drain", callback)
+
     def once_connect(self, callback):
         self.once("connect", callback)
 
@@ -105,6 +137,24 @@ class PipeSocket(EventEmitter):
         self.once("error", callback)
 
     def once_drain(self, callback):
+        self.once("drain", callback)
+
+    def noce_connect(self, callback):
+        self.once("connect", callback)
+
+    def noce_data(self, callback):
+        self.once("data", callback)
+
+    def noce_end(self, callback):
+        self.once("end", callback)
+
+    def noce_close(self, callback):
+        self.once("close", callback)
+
+    def noce_error(self, callback):
+        self.once("error", callback)
+
+    def noce_drain(self, callback):
         self.once("drain", callback)
 
     def enable_fast_open(self):

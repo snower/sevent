@@ -5,7 +5,7 @@
 
 import greenlet
 from ..errors import SocketClosed
-from ..event import null_emit_callback
+from ..event import EventEmitter, null_emit_callback
 
 STATE_INITIALIZED = 0x01
 STATE_CONNECTING = 0x02
@@ -30,43 +30,28 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
-            emit_drain = self.emit_drain
-            emit_close = self.emit_close
-            emit_error = self.emit_error
-
             def on_drain(socket):
-                if self.emit_drain != on_drain:
-                    return
-
-                self.emit_drain = emit_drain
-                self.emit_close = emit_close
-                self.emit_error = emit_error
-                self._has_drain_event = False
+                EventEmitter.off(self, "drain", on_drain)
+                EventEmitter.off(self, "close", on_close)
+                EventEmitter.off(self, "error", on_error)
+                if not self._events["drain"] and not self._events_once["drain"]:
+                    self._has_drain_event = False
                 return child_gr.switch()
 
             def on_close(socket):
-                if self.emit_close != on_close:
-                    return
-
-                self.emit_drain = emit_drain
-                self.emit_close = emit_close
-                self.emit_error = emit_error
-                self._has_drain_event = False
                 return child_gr.throw(SocketClosed())
 
             def on_error(socker, e):
-                if self.emit_error != on_error:
-                    return
-
-                self.emit_drain = emit_drain
-                self.emit_close = emit_close
-                self.emit_error = emit_error
-                self._has_drain_event = False
+                EventEmitter.off(self, "drain", on_drain)
+                EventEmitter.off(self, "close", on_close)
+                EventEmitter.off(self, "error", on_error)
+                if not self._events["drain"] and not self._events_once["drain"]:
+                    self._has_drain_event = False
                 return child_gr.throw(e)
 
-            setattr(self, "emit_drain", on_drain)
-            setattr(self, "emit_close", on_close)
-            setattr(self, "emit_error", on_error)
+            EventEmitter.on(self, "drain", on_drain)
+            EventEmitter.on(self, "close", on_close)
+            EventEmitter.on(self, "error", on_error)
             self._has_drain_event = True
             return main.switch()
 
@@ -83,43 +68,26 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
-            emit_data = self.emit_data
-            emit_close = self.emit_close
-            emit_error = self.emit_error
-
             def on_data(socket, buffer):
                 if len(buffer) < size:
                     return
-
-                if self.emit_data != on_data:
-                    return
-
-                self.emit_data = emit_data
-                self.emit_close = emit_close
-                self.emit_error = emit_error
+                EventEmitter.off(self, "data", on_data)
+                EventEmitter.off(self, "close", on_close)
+                EventEmitter.off(self, "error", on_error)
                 return child_gr.switch(buffer)
 
             def on_close(socket):
-                if self.emit_close != on_close:
-                    return
-
-                self.emit_data = emit_data
-                self.emit_close = emit_close
-                self.emit_error = emit_error
                 return child_gr.throw(SocketClosed())
 
             def on_error(socker, e):
-                if self.emit_error != on_error:
-                    return
-
-                self.emit_data = emit_data
-                self.emit_close = emit_close
-                self.emit_error = emit_error
+                EventEmitter.off(self, "data", on_data)
+                EventEmitter.off(self, "close", on_close)
+                EventEmitter.off(self, "error", on_error)
                 return child_gr.throw(e)
 
-            setattr(self, "emit_data", on_data)
-            setattr(self, "emit_close", on_close)
-            setattr(self, "emit_error", on_error)
+            EventEmitter.on(self, "data", on_data)
+            EventEmitter.on(self, "close", on_close)
+            EventEmitter.on(self, "error", on_error)
             return main.switch()
 
         async def closeof(self):
@@ -130,7 +98,7 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
-            self.on_close(lambda socket: child_gr.switch())
+            EventEmitter.on(self, "close", lambda socket: child_gr.switch())
             self.end()
             return main.switch()
 
@@ -149,7 +117,7 @@ def warp_coroutine(BaseSocket, BaseServer):
                 child_gr.switch()
 
             BaseSocket.link(socket, address, timeout)
-            socket.on_close(do_closed)
+            EventEmitter.on(socket, "close", do_closed)
             return main.switch()
 
         async def join(self):
@@ -160,7 +128,7 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
-            self.on_close(lambda socket: child_gr.switch())
+            EventEmitter.on(self, "close", lambda socket: child_gr.switch())
             return main.switch()
 
     class Server(BaseServer):
@@ -176,40 +144,24 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
-            emit_bind = self.emit_bind
-            emit_close = self.emit_close
-            emit_error = self.emit_error
-
             def on_bind(server):
-                if self.emit_bind != on_bind:
-                    return
-
-                self.emit_bind = emit_bind
-                self.emit_close = emit_close
-                self.emit_error = emit_error
+                EventEmitter.off(self, "bind", on_bind)
+                EventEmitter.off(self, "close", on_close)
+                EventEmitter.off(self, "error", on_error)
                 return child_gr.switch()
 
             def on_close(socket):
-                if self.emit_close != on_close:
-                    return
-
-                self.emit_bind = emit_bind
-                self.emit_close = emit_close
-                self.emit_error = emit_error
                 return child_gr.throw(SocketClosed())
 
             def on_error(socker, e):
-                if self.emit_error != on_error:
-                    return
-
-                self.emit_bind = emit_bind
-                self.emit_close = emit_close
-                self.emit_error = emit_error
+                EventEmitter.off(self, "bind", on_bind)
+                EventEmitter.off(self, "close", on_close)
+                EventEmitter.off(self, "error", on_error)
                 return child_gr.throw(e)
 
-            setattr(self, "emit_bind", on_bind)
-            setattr(self, "emit_close", on_close)
-            setattr(self, "emit_error", on_error)
+            EventEmitter.on(self, "bind", on_bind)
+            EventEmitter.on(self, "close", on_close)
+            EventEmitter.on(self, "error", on_error)
             self.bind(address)
             return main.switch()
 
@@ -221,7 +173,7 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
-            self.on_close(lambda socket: child_gr.switch())
+            EventEmitter.on(self, "close", lambda socket: child_gr.switch())
             self.end()
             return main.switch()
 
@@ -233,7 +185,7 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = child_gr.parent
             assert main is not None, "must be running in async func"
 
-            self.on_close(lambda socket: child_gr.switch())
+            EventEmitter.on(self, "close", lambda socket: child_gr.switch())
             return main.switch()
 
     return Socket, Server

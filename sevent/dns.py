@@ -151,7 +151,13 @@ class DNSResolver(EventEmitter):
     def on_resolve(self, callback):
         self.on("resolve", callback)
 
+    def off_resolve(self, callback):
+        self.on("resolve", callback)
+
     def once_resolve(self, callback):
+        self.once("resolve", callback)
+
+    def noce_resolve(self, callback):
         self.once("resolve", callback)
 
     def create_socket(self):
