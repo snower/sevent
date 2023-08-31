@@ -55,7 +55,7 @@ class DNSCache(object):
             self._last_resolve_time = now
 
     def get(self, hostname):
-        if not self._cache[hostname]:
+        if hostname not in self._cache or not self._cache[hostname]:
             return None, hostname
 
         now = time.time()
@@ -108,6 +108,43 @@ class DNSCache(object):
         return bool(self.get(hostname)[0])
 
 
+class DnsQueryState(object):
+    def __init__(self, hostname, v4server_count, v6server_count):
+        self.hostname = hostname
+        self.v4bv4_count = v4server_count
+        self.v6bv6_count = v6server_count
+        self.v6bv4_count = v4server_count
+        self.v4bv6_count = v6server_count
+        self.v4bv4_loading_count = 0
+        self.v6bv6_loading_count = 0
+        self.v6bv4_loading_count = 0
+        self.v4bv6_loading_count = 0
+        self.v4bv4_done_count = 0
+        self.v6bv6_done_count = 0
+        self.v6bv4_done_count = 0
+        self.v4bv6_done_count = 0
+        self.callbacks = []
+
+    def v4bv4_done(self):
+        return self.v4bv4_done_count >= self.v4bv4_count
+
+    def v6bv6_done(self):
+        return self.v6bv6_done_count >= self.v6bv6_count
+
+    def v6bv4_done(self):
+        return self.v6bv4_done_count >= self.v6bv4_count
+
+    def v4bv6_done(self):
+        return self.v4bv6_done_count >= self.v4bv6_count
+
+    def done(self):
+        return self.v4bv4_done_count >= self.v4bv4_count and self.v6bv6_done_count >= self.v6bv6_count \
+               and self.v6bv4_done_count >= self.v6bv4_count and self.v4bv6_done_count >= self.v4bv6_count
+
+    def append(self, callback):
+        self.callbacks.append(callback)
+
+
 class DNSResolver(EventEmitter):
     _instance = None
 
@@ -126,8 +163,7 @@ class DNSResolver(EventEmitter):
         self._hosts = hosts or {}
 
         self._cache = DNSCache(self._loop)
-        self._queue = defaultdict(list)
-        self._loading = defaultdict(int)
+        self._queue = {}
         self._socket = None
         self._socket6 = None
         self._status = STATUS_OPENED
@@ -170,7 +206,7 @@ class DNSResolver(EventEmitter):
     def create_socket6(self):
         from .udp import Socket
         self._socket6 = Socket(self._loop)
-        self._socket6.on_data(self.on_data)
+        self._socket6.on_data(self.on_data6)
         self._socket6.on_close(self.on_close)
         self._socket6.on_error(lambda s, e: None)
 
@@ -248,12 +284,11 @@ class DNSResolver(EventEmitter):
             self._hosts[b'localhost'] = '127.0.0.1'
 
     def call_callback(self, hostname, ip):
-        if hostname not in self._queue or not self._queue[hostname]:
+        if hostname not in self._queue:
             return
-        callbacks = self._queue.pop(hostname)
-        self._loading.pop(hostname, 0)
+        query_state = self._queue.pop(hostname)
         hostname = hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname
-        for callback in callbacks:
+        for callback in query_state.callbacks:
             self._loop.add_async(callback, hostname, ip)
         self._loop.add_async(self.emit_resolve, self, hostname, ip)
 
@@ -263,73 +298,116 @@ class DNSResolver(EventEmitter):
             try:
                 answer = dnslib.DNSRecord.parse(data)
                 hostname = b".".join(answer.q.qname.label)
-                if hostname not in self._loading:
-                    continue
-                if self._loading[hostname] <= 0:
-                    self._loading.pop(hostname, 0)
+                if hostname not in self._queue:
                     continue
                 rrs = [rr for rr in answer.rr if rr.rtype == answer.q.qtype]
-                self._loading[hostname] -= 1
+                query_state = self._queue[hostname]
+                if answer.q.qtype == 28:
+                    query_state.v6bv4_loading_count -= 1
+                    query_state.v6bv4_done_count += 1
+                else:
+                    query_state.v4bv4_loading_count -= 1
+                    query_state.v4bv4_done_count += 1
 
                 if rrs:
                     self._cache.append(hostname, rrs)
                     self.call_callback(hostname, str(rrs[0].rdata))
-                elif self._loading[hostname] <= 0:
+                elif query_state.done():
                     self.call_callback(hostname, None)
+                elif query_state.v4bv4_done() and query_state.v6bv4_loading_count <= 0 \
+                        and query_state.v6bv4_done_count <= 0:
+                    self.send_req(hostname, query_state, 0, True)
             except Exception:
                 pass
 
-    def send_req(self, hostname, server_index=0):
+    def on_data6(self, socket, buffer):
+        while buffer:
+            data, address = buffer.next()
+            try:
+                answer = dnslib.DNSRecord.parse(data)
+                hostname = b".".join(answer.q.qname.label)
+                if hostname not in self._queue:
+                    continue
+                rrs = [rr for rr in answer.rr if rr.rtype == answer.q.qtype]
+                query_state = self._queue[hostname]
+                if answer.q.qtype == 1:
+                    query_state.v4bv6_loading_count -= 1
+                    query_state.v4bv6_done_count += 1
+                else:
+                    query_state.v6bv6_loading_count -= 1
+                    query_state.v6bv6_done_count += 1
+
+                if rrs:
+                    self._cache.append(hostname, rrs)
+                    self.call_callback(hostname, str(rrs[0].rdata))
+                elif query_state.done():
+                    self.call_callback(hostname, None)
+                elif query_state.v6bv6_done() and query_state.v4bv6_loading_count <= 0 \
+                        and query_state.v4bv6_done_count <= 0:
+                    self.send_req6(hostname, query_state, 0, True)
+            except Exception:
+                pass
+
+    def send_req(self, hostname, query_state, server_index=0, is_query_v6=False):
         if not self._servers:
             return
         servers = self._servers
 
-        question = dnslib.DNSRecord.question(hostname, 'A')
+        question = dnslib.DNSRecord.question(hostname, 'AAAA' if is_query_v6 else 'A')
         if self._socket is None:
             self.create_socket()
         seq_data = bytes(question.pack())
         for _ in range(3):
             if server_index >= len(servers):
                 break
-            self._loading[hostname] += 1
+            if is_query_v6:
+                query_state.v6bv4_loading_count += 1
+            else:
+                query_state.v4bv4_loading_count += 1
             self._socket.write((seq_data, (servers[server_index], 53)))
             server_index += 1
 
         def on_timeout():
             if server_index >= len(servers):
-                if hostname not in self._cache:
-                    self.send_req6(hostname, 0, True)
+                if hostname in self._queue and query_state.v6bv4_loading_count <= 0 \
+                        and query_state.v6bv4_done_count <= 0:
+                    self.send_req(hostname, query_state, 0, True)
                 return
-            if hostname not in self._cache:
-                self.send_req(hostname, server_index)
+            if hostname in self._queue:
+                self.send_req(hostname, query_state, server_index, is_query_v6)
+        if server_index >= len(servers) and is_query_v6:
+            return
         self._loop.add_timeout(self._resend_timeout, on_timeout)
 
-    def send_req6(self, hostname, server_index=0, use_v4servers=False):
-        if use_v4servers:
-            if not self._servers:
-                return
-            servers = self._servers
-        else:
-            if not self._server6s:
-                return
-            servers = self._server6s
+    def send_req6(self, hostname, query_state, server_index=0, is_query_v4=False):
+        if not self._server6s:
+            return
+        servers = self._server6s
 
-        question = dnslib.DNSRecord.question(hostname, 'AAAA')
+        question = dnslib.DNSRecord.question(hostname, 'A' if is_query_v4 else 'AAAA')
         if self._socket6 is None:
             self.create_socket6()
         seq_data = bytes(question.pack())
         for _ in range(3):
             if server_index >= len(servers):
                 break
-            self._loading[hostname] += 1
+            if is_query_v4:
+                query_state.v4bv6_loading_count += 1
+            else:
+                query_state.v6bv6_loading_count += 1
             self._socket6.write((seq_data, (servers[server_index], 53)))
             server_index += 1
 
         def on_timeout():
             if server_index >= len(servers):
+                if hostname in self._queue and query_state.v4bv6_loading_count <= 0 \
+                        and query_state.v4bv6_done_count <= 0:
+                    self.send_req6(hostname, query_state, 0, True)
                 return
-            if hostname not in self._cache:
-                self.send_req6(hostname, server_index, use_v4servers)
+            if hostname in self._queue:
+                self.send_req6(hostname, query_state, server_index, is_query_v4)
+        if server_index >= len(servers) and is_query_v4:
+            return
         self._loop.add_timeout(self._resend_timeout, on_timeout)
 
     def resolve(self, hostname, callback, timeout=None):
@@ -347,19 +425,20 @@ class DNSResolver(EventEmitter):
             return callback(hostname.decode("utf-8") if is_py3 and type(hostname) != str else hostname, self._cache[hostname])
         else:
             try:
-                if not self._queue[hostname]:
-                    self._queue[hostname].append(callback)
-                    self.send_req(hostname)
-                    self.send_req6(hostname)
+                if hostname not in self._queue:
+                    self._queue[hostname] = query_state = DnsQueryState(hostname, len(self._servers), len(self._server6s))
+                    query_state.append(callback)
+                    self.send_req(hostname, query_state)
+                    self.send_req6(hostname, query_state)
 
-                    if hostname not in self._cache:
+                    if hostname in self._queue:
                         def on_timeout():
-                            if hostname not in self._cache:
+                            if hostname in self._queue:
                                 self.call_callback(hostname, None)
                         self._loop.add_timeout(timeout or self._resolve_timeout, on_timeout)
                 else:
                     self._queue[hostname].append(callback)
-            except Exception as e:
+            except Exception:
                 self.call_callback(hostname, None)
         return False
 
@@ -385,8 +464,8 @@ class DNSResolver(EventEmitter):
         if self._socket6:
             self._socket6.close()
 
-        for hostname, callbacks in self._queue.items():
-            for callback in callbacks:
+        for hostname, query_state in self._queue.items():
+            for callback in query_state.callbacks:
                 self._loop.add_async(callback, hostname, None)
         self._queue.clear()
 
