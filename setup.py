@@ -28,7 +28,7 @@ else:
 
 setup(
     name='sevent',
-    version='0.4.18',
+    version='0.4.19',
     packages=['sevent', 'sevent.impl', 'sevent.coroutines', 'sevent.helpers'],
     ext_modules=ext_modules,
     package_data={
