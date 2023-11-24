@@ -672,7 +672,7 @@ Buffer_extend(register BufferObject *objbuf, register BufferObject *databuf) {
 static PyObject *
 Buffer_fetch(register BufferObject *objbuf, PyObject *args) {
     PyObject* data;
-    Py_ssize_t size = -1;
+    int size = -1;
     if (!PyArg_ParseTuple(args, "O|i", &data, &size)) {
         return NULL;
     }
@@ -771,7 +771,7 @@ Buffer_fetch(register BufferObject *objbuf, PyObject *args) {
 static PyObject *
 Buffer_copyfrom(register BufferObject *objbuf, PyObject *args) {
     PyObject* data;
-    Py_ssize_t size = -1;
+    int size = -1;
     if (!PyArg_ParseTuple(args, "O|i", &data, &size)) {
         return NULL;
     }
