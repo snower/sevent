@@ -2,7 +2,7 @@
 
 import select
 import time
-import bisect
+import heapq
 import threading
 from collections import defaultdict
 from .waker import Waker
@@ -193,9 +193,9 @@ class IOLoop(object):
                     while self._timeout_handlers:
                         handler = self._timeout_handlers[0]
                         if handler.canceled:
-                            self._timeout_handlers.pop(0)
+                            heapq.heappop(self._timeout_handlers)
                         elif handler.deadline <= cur_time:
-                            self._timeout_handlers.pop(0)
+                            heapq.heappop(self._timeout_handlers)
                             try:
                                 handler.callback(*handler.args, **handler.kwargs)
                             except Exception as e:
@@ -250,10 +250,7 @@ class IOLoop(object):
 
     def add_timeout(self, timeout, callback, *args, **kwargs):
         handler = TimeoutHandler(callback, time.time() + timeout, args, kwargs)
-        if not self._timeout_handlers or handler.deadline >= self._timeout_handlers[-1].deadline:
-            self._timeout_handlers.append(handler)
-        else:
-            bisect.insort(self._timeout_handlers, handler)
+        heapq.heappush(self._timeout_handlers, handler)
         return handler
 
     def cancel_timeout(self, handler):
@@ -265,13 +262,14 @@ class IOLoop(object):
         else:
             try:
                 self._timeout_handlers.remove(handler)
+                heapq.heapify(self._timeout_handlers)
             except ValueError:
                 pass
 
         while self._timeout_handlers:
             if not self._timeout_handlers[0].canceled:
                 break
-            self._timeout_handlers.pop(0)
+            heapq.heappop(self._timeout_handlers)
 
     def wakeup(self, *args, **kwargs):
         if args and callable(args[0]):
