@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-version = '0.4.19'
-version_info = (0, 4, 19)
+version = '0.4.20'
+version_info = (0, 4, 20)
 
 from .utils import is_py3, set_logger
 from .loop import instance, current
