@@ -69,7 +69,7 @@ async def read_forward_address(conn):
     port, = struct.unpack("!H", (await conn.recv(2)).read(2))
     return (host, port)
 
-async def tcp_forward(conn, forward_address, conns, status):
+async def tcp_forward(conn, forward_address, conns, status, conn_status):
     start_time = time.time()
     conn.write, pconn = warp_write(conn, status, "recv_len"), None
 
@@ -77,8 +77,10 @@ async def tcp_forward(conn, forward_address, conns, status):
         conn.enable_nodelay()
         pconn = create_socket(forward_address)
         await pconn.connectof(forward_address)
-        pconn.write = warp_write(pconn, status, "send_len")
+        if conn in conn_status["remote_conn"]:
+            conn_status["remote_conn"].remove(conn)
         conns[id(conn)] = (conn, pconn, status)
+        pconn.write = warp_write(pconn, status, "send_len")
         logging.info("tcp forward connected %s:%d -> %s:%d", conn.address[0], conn.address[1], forward_address[0], forward_address[1])
         await pconn.linkof(conn)
     except sevent.errors.SocketClosed:
@@ -138,7 +140,7 @@ async def server_handle_remote_connect(conn, forward_address, key, proxy_type, c
     status["remote_conn"].append(conn)
     conn.on_close(on_close)
     try:
-        connect_type, sign_key_len = struct.unpack("!BB", (await conn.recv(2)).read(2))
+        command_type, sign_key_len = struct.unpack("!BB", (await conn.recv(2)).read(2))
         sign_key = (await conn.recv(sign_key_len)).read(sign_key_len) if sign_key_len > 0 else b''
     except sevent.errors.SocketClosed:
         return
@@ -147,29 +149,28 @@ async def server_handle_remote_connect(conn, forward_address, key, proxy_type, c
         logging.info("remote conn auth fail %s:%d %s", conn.address[0], conn.address[1], sign_key)
         return
 
-    if connect_type == 1:
-        setattr(conn, "_authed_time", time.time())
+    if command_type == 1:
         if status["local_conn"]:
             forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
                               "check_send_len": 0}
             local_conn = status["local_conn"].pop(0)
-            sevent.go(reverse_port_forward, conn, local_conn, forward_status, local_conn._connected_forward_address)
+            if conn in status["remote_conn"]:
+                status["remote_conn"].remove(conn)
             conns[id(conn)] = (conn, local_conn, forward_status)
-            if conn not in status["remote_conn"]:
-                return
-            status["remote_conn"].remove(conn)
+            sevent.go(reverse_port_forward, conn, local_conn, forward_status, local_conn._connected_forward_address)
             return
+        setattr(conn, "_heartbeat_time", time.time())
         logging.info("remote conn waiting %s:%d", conn.address[0], conn.address[1])
         return
 
-    if connect_type == 2 or connect_type == 3:
+    if command_type == 0x02 or command_type == 0x03:
         try:
-            if connect_type == 3:
+            if command_type == 0x03:
                 forward_address = await read_forward_address(conn)
             await conn.send(b'\x00')
             forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
                               "check_send_len": 0}
-            sevent.current().call_async(tcp_forward, conn, forward_address, conns, forward_status)
+            sevent.current().call_async(tcp_forward, conn, forward_address, conns, forward_status, status)
         except sevent.errors.SocketClosed:
             pass
         except Exception as e:
@@ -193,8 +194,8 @@ async def server_handle_local_connect(conn, forward_address, key, proxy_type, co
         forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
                           "check_send_len": 0}
         remote_conn = status["remote_conn"].pop(0)
-        sevent.go(reverse_port_forward, remote_conn, conn, forward_status, forward_address)
         conns[id(remote_conn)] = (remote_conn, conn, forward_status)
+        sevent.go(reverse_port_forward, remote_conn, conn, forward_status, forward_address)
         return
 
     def on_close(conn):
@@ -205,6 +206,30 @@ async def server_handle_local_connect(conn, forward_address, key, proxy_type, co
     status["local_conn"].append(conn)
     conn.on_close(on_close)
     logging.info("local conn waiting %s:%d", conn.address[0], conn.address[1])
+
+async def server_handle_remote_heartbeat(conn, conn_status):
+    if conn not in conn_status["remote_conn"]:
+        return
+    conn_status["remote_conn"].remove(conn)
+    try:
+        await conn.send(b'\x04')
+        command_type = (await conn.recv(1)).read(1)
+        if command_type != b'\x04':
+            sevent.current().add_async(conn.close)
+        else:
+            setattr(conn, "_heartbeat_time", time.time())
+            if status["local_conn"]:
+                forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
+                                  "check_send_len": 0}
+                local_conn = status["local_conn"].pop(0)
+                if conn in status["remote_conn"]:
+                    status["remote_conn"].remove(conn)
+                conns[id(conn)] = (conn, local_conn, forward_status)
+                sevent.go(reverse_port_forward, conn, local_conn, forward_status, local_conn._connected_forward_address)
+                return
+            conn_status["remote_conn"].append(conn)
+    except:
+        conn.close()
 
 async def server_run_server(server, forward_address, key, proxy_type, conns, status, handle):
     while True:
@@ -222,20 +247,26 @@ async def client_run_connect(remote_address, forward_address, key, conns, status
             conn = create_socket(remote_address)
             await conn.connectof(remote_address)
             sign_key = gen_sign_key(key)
-            await conn.send(struct.pack("!BB", 1, len(sign_key)) + sign_key)
-            connect_type = (await conn.recv(1)).read(1)
-            if connect_type == b'\x01':
-                current_forward_address = await read_forward_address(conn)
-            else:
-                current_forward_address = forward_address
+            await conn.send(struct.pack("!BB", 0x01, len(sign_key)) + sign_key)
+            while True:
+                command_type = (await conn.recv(1)).read(1)
+                if command_type == b'\x01':
+                    current_forward_address = await read_forward_address(conn)
+                    break
+                elif command_type == b'\x04':
+                    setattr(conn, "_heartbeat_time", time.time())
+                    await conn.send(b'\x04')
+                else:
+                    current_forward_address = forward_address
+                    break
             forward_status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0,
                               "check_send_len": 0}
-            sevent.current().call_async(tcp_forward, conn, current_forward_address, conns, forward_status)
+            sevent.current().call_async(tcp_forward, conn, current_forward_address, conns, forward_status, status)
         except sevent.errors.SocketClosed as e:
             logging.info("connect error %s:%d %s", remote_address[0], remote_address[1], e)
             if time.time() - start_time < 5:
                 await sevent.sleep(5)
-        except (sevent.errors.ResolveError, ConnectionRefusedError) as e:
+        except (sevent.errors.ResolveError, sevent.errors.ConnectTimeout, sevent.errors.ConnectError, ConnectionRefusedError) as e:
             logging.info("connect error %s:%d %s", remote_address[0], remote_address[1], e)
             await sevent.sleep(5)
         except Exception as e:
@@ -253,10 +284,10 @@ async def client_handle_local_connect(conn, remote_address, key, proxy_type, con
         await pconn.connectof(remote_address)
         sign_key = gen_sign_key(key)
         if forward_address:
-            await pconn.send(struct.pack("!BB", 3, len(sign_key)) + sign_key)
+            await pconn.send(struct.pack("!BB", 0x03, len(sign_key)) + sign_key)
             await write_forward_address(pconn, forward_address)
         else:
-            await pconn.send(struct.pack("!BB", 2, len(sign_key)) + sign_key)
+            await pconn.send(struct.pack("!BB", 0x02, len(sign_key)) + sign_key)
         (await pconn.recv(1)).read(1)
         pconn.write = warp_write(pconn, status, "send_len")
         logging.info("tcp forward connected %s:%d -> %s:%d", conn.address[0], conn.address[1], remote_address[0], remote_address[1])
@@ -295,14 +326,20 @@ async def check_timeout(conns, conn_status, timeout):
             try:
                 now = time.time()
                 for conn in tuple(conn_status["remote_conn"]):
-                    if not hasattr(conn, "_authed_time"):
+                    if not hasattr(conn, "_heartbeat_time"):
                         if now - conn._connected_time >= 30:
                             sevent.current().add_async_safe(conn.close)
-                    elif now - conn._authed_time >= 180:
-                        sevent.current().add_async_safe(conn.close)
+                    else:
+                        if now - conn._heartbeat_time >= 90:
+                            if now - conn._heartbeat_time >= 180:
+                                sevent.current().add_async_safe(conn.close)
+                            elif not hasattr(conn, "_ping_time") or now - conn._ping_time >= 90:
+                                setattr(conn, "_ping_time", time.time())
+                                sevent.current().add_async_safe(lambda c, s: sevent.go(server_handle_remote_heartbeat, c, s),
+                                                                conn, conn_status)
 
                 for conn in tuple(conn_status["local_conn"]):
-                    if now - conn._connected_time >= 180:
+                    if now - conn._connected_time >= 60:
                         sevent.current().add_async_safe(conn.close)
 
                 for conn_id, (conn, pconn, status) in list(conns.items()):
@@ -314,7 +351,7 @@ async def check_timeout(conns, conn_status, timeout):
 
                     if now - status['last_time'] >= timeout:
                         sevent.current().add_async_safe(conn.close)
-                        sevent.current().add_async(pconn.close)
+                        sevent.current().add_async_safe(pconn.close)
                         conns.pop(conn_id, None)
             finally:
                 time.sleep(min(float(timeout) / 2.0, 30))
