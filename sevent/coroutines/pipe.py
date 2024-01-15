@@ -247,10 +247,10 @@ def warp_coroutine(BaseSocket, BaseServer):
         async def closeof(self):
             if self._state == STATE_CLOSED:
                 return
-            if not self._close_error_registed:
-                EventEmitter.on(self, "close", self._on_close_handle)
-                EventEmitter.on(self, "error", self._on_error_handle)
-                self._close_error_registed = True
+            if self._close_error_registed:
+                EventEmitter.off(self, "close", self._on_close_handle)
+                EventEmitter.off(self, "error", self._on_error_handle)
+                self._close_error_registed = False
 
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
@@ -263,10 +263,10 @@ def warp_coroutine(BaseSocket, BaseServer):
         async def join(self):
             if self._state == STATE_CLOSED:
                 return
-            if not self._close_error_registed:
-                EventEmitter.on(self, "close", self._on_close_handle)
-                EventEmitter.on(self, "error", self._on_error_handle)
-                self._close_error_registed = True
+            if self._close_error_registed:
+                EventEmitter.off(self, "close", self._on_close_handle)
+                EventEmitter.off(self, "error", self._on_error_handle)
+                self._close_error_registed = False
 
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
