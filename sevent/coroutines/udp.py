@@ -116,6 +116,10 @@ def warp_coroutine(BaseSocket, BaseServer):
 
         @classmethod
         async def linkof(cls, socket, address, timeout=900):
+            if hasattr(socket, "_send_greenlet"):
+                assert socket._send_greenlet is None, "already sending"
+            if hasattr(socket, "_recv_greenlet"):
+                assert socket._recv_greenlet is None, "already recving"
             if socket._state == STATE_CLOSED:
                 raise SocketClosed()
             if hasattr(socket, "_close_error_registed") and socket._close_error_registed:

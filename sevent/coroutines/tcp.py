@@ -154,6 +154,9 @@ def warp_coroutine(BaseSocket, BaseServer):
             return main.switch()
 
         async def linkof(self, socket):
+            assert self._connect_greenlet is None, "already connecting"
+            assert self._send_greenlet is None, "already sending"
+            assert self._recv_greenlet is None, "already recving"
             if self._state not in (STATE_STREAMING, STATE_CONNECTING):
                 raise SocketClosed()
             if socket._state not in (STATE_STREAMING, STATE_CONNECTING):
