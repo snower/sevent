@@ -20,30 +20,66 @@ def warp_coroutine(BaseSocket, BaseServer):
         _send_greenlet = None
         _recv_greenlet = None
         _close_error_registed = False
+        _recv_size = 0
 
         def _on_close_handle(self, socket):
             if self._connect_greenlet is not None:
+                EventEmitter.off(self, "connect", self._on_connect_handle)
                 child_gr, self._connect_greenlet = self._connect_greenlet, None
                 child_gr.throw(SocketClosed())
             if self._send_greenlet is not None:
+                EventEmitter.off(self, "drain", self._on_send_handle)
                 child_gr, self._send_greenlet = self._send_greenlet, None
                 child_gr.throw(SocketClosed())
             if self._recv_greenlet is not None:
+                EventEmitter.off(self, "data", self._on_recv_handle)
                 child_gr, self._recv_greenlet = self._recv_greenlet, None
                 child_gr.throw(SocketClosed())
 
         def _on_error_handle(self, socket, e):
             if self._connect_greenlet is not None:
+                EventEmitter.off(self, "connect", self._on_connect_handle)
                 child_gr, self._connect_greenlet = self._connect_greenlet, None
                 child_gr.throw(e)
             if self._send_greenlet is not None:
+                EventEmitter.off(self, "drain", self._on_send_handle)
                 if not self._events["drain"] and not self._events_once["drain"]:
                     self._has_drain_event = False
                 child_gr, self._send_greenlet = self._send_greenlet, None
                 child_gr.throw(e)
             if self._recv_greenlet is not None:
+                EventEmitter.off(self, "data", self._on_recv_handle)
                 child_gr, self._recv_greenlet = self._recv_greenlet, None
                 child_gr.throw(e)
+
+        def _on_connect_handle(self, socket):
+            if self._connect_greenlet is None:
+                return
+            EventEmitter.off(self, "connect", self._on_connect_handle)
+            if self._close_error_registed:
+                EventEmitter.off(self, "close", self._on_close_handle)
+                EventEmitter.off(self, "error", self._on_error_handle)
+                self._close_error_registed = False
+            child_gr, self._connect_greenlet = self._connect_greenlet, None
+            return child_gr.switch()
+
+        def _on_send_handle(self, socket):
+            if self._send_greenlet is None:
+                return
+            EventEmitter.off(self, "drain", self._on_send_handle)
+            if not self._events["drain"] and not self._events_once["drain"]:
+                self._has_drain_event = False
+            child_gr, self._send_greenlet = self._send_greenlet, None
+            return child_gr.switch()
+
+        def _on_recv_handle(self, socket, buffer):
+            if self._recv_greenlet is None:
+                return
+            if len(buffer) < self._recv_size:
+                return
+            EventEmitter.off(self, "data", self._on_recv_handle)
+            child_gr, self._recv_greenlet = self._recv_greenlet, None
+            return child_gr.switch(buffer)
 
         async def connectof(self, address, timeout=5):
             assert self._connect_greenlet is None, "already connecting"
@@ -60,11 +96,7 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = self._connect_greenlet.parent
             assert main is not None, "must be running in async func"
 
-            def on_connect(socket):
-                EventEmitter.off(self, "connect", on_connect)
-                child_gr, self._connect_greenlet = self._connect_greenlet, None
-                return child_gr.switch()
-            EventEmitter.on(self, "connect", on_connect)
+            EventEmitter.on(self, "connect", self._on_connect_handle)
             self.connect(address, timeout)
             return main.switch()
 
@@ -84,13 +116,7 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = self._send_greenlet.parent
             assert main is not None, "must be running in async func"
 
-            def on_drain(socket):
-                EventEmitter.off(self, "drain", on_drain)
-                if not self._events["drain"] and not self._events_once["drain"]:
-                    self._has_drain_event = False
-                child_gr, self._send_greenlet = self._send_greenlet, None
-                return child_gr.switch()
-            EventEmitter.on(self, "drain", on_drain)
+            EventEmitter.on(self, "drain", self._on_send_handle)
             self._has_drain_event = True
             return main.switch()
 
@@ -110,13 +136,8 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = self._recv_greenlet.parent
             assert main is not None, "must be running in async func"
 
-            def on_data(socket, buffer):
-                if len(buffer) < size:
-                    return
-                EventEmitter.off(self, "data", on_data)
-                child_gr, self._recv_greenlet = self._recv_greenlet, None
-                return child_gr.switch(buffer)
-            EventEmitter.on(self, "data", on_data)
+            EventEmitter.on(self, "data", self._on_recv_handle)
+            self._recv_size = size
             return main.switch()
 
         async def closeof(self):
@@ -187,19 +208,37 @@ def warp_coroutine(BaseSocket, BaseServer):
 
         def _on_close_handle(self, socket):
             if self._listen_greenlet is not None:
+                EventEmitter.off(self, "listen", self._on_listen_handle)
                 child_gr, self._listen_greenlet = self._listen_greenlet, None
                 child_gr.throw(SocketClosed())
             if self._accept_greenlet is not None:
+                EventEmitter.off(self, "connection", self._on_accept_handle)
                 child_gr, self._accept_greenlet = self._accept_greenlet, None
                 child_gr.throw(SocketClosed())
 
         def _on_error_handle(self, socket, e):
             if self._listen_greenlet is not None:
+                EventEmitter.off(self, "listen", self._on_listen_handle)
                 child_gr, self._listen_greenlet = self._listen_greenlet, None
                 child_gr.throw(e)
             if self._accept_greenlet is not None:
+                EventEmitter.off(self, "connection", self._on_accept_handle)
                 child_gr, self._accept_greenlet = self._accept_greenlet, None
                 child_gr.throw(e)
+
+        def _on_listen_handle(self, server):
+            if self._listen_greenlet is None:
+                return
+            EventEmitter.off(self, "listen", self._on_listen_handle)
+            child_gr, self._listen_greenlet = self._listen_greenlet, None
+            return child_gr.switch()
+
+        def _on_accept_handle(self, server, connection):
+            if self._accept_greenlet is None:
+                return
+            EventEmitter.off(self, "connection", self._on_accept_handle)
+            child_gr, self._accept_greenlet = self._accept_greenlet, None
+            return child_gr.switch(connection)
 
         async def listenof(self, address, backlog=128):
             assert self._listen_greenlet is None, "already listening"
@@ -216,11 +255,7 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = self._listen_greenlet.parent
             assert main is not None, "must be running in async func"
 
-            def on_listen(server):
-                EventEmitter.off(self, "listen", on_listen)
-                child_gr, self._listen_greenlet = self._listen_greenlet, None
-                return child_gr.switch()
-            EventEmitter.on(self, "listen", on_listen)
+            EventEmitter.on(self, "listen", self._on_listen_handle)
             self.listen(address, backlog)
             return main.switch()
 
@@ -237,11 +272,7 @@ def warp_coroutine(BaseSocket, BaseServer):
             main = self._accept_greenlet.parent
             assert main is not None, "must be running in async func"
 
-            def on_connection(server, connection):
-                EventEmitter.off(self, "connection", on_connection)
-                child_gr, self._accept_greenlet = self._accept_greenlet, None
-                return child_gr.switch(connection)
-            EventEmitter.on(self, "connection", on_connection)
+            EventEmitter.on(self, "connection", self._on_accept_handle)
             return main.switch()
 
         async def closeof(self):
