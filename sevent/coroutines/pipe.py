@@ -143,10 +143,6 @@ def warp_coroutine(BaseSocket, BaseServer):
         async def closeof(self):
             if self._state == STATE_CLOSED:
                 return
-            if self._close_error_registed:
-                EventEmitter.off(self, "close", self._on_close_handle)
-                EventEmitter.off(self, "error", self._on_error_handle)
-                self._close_error_registed = False
 
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
@@ -181,18 +177,14 @@ def warp_coroutine(BaseSocket, BaseServer):
                     return
                 child_gr.switch()
 
-            BaseSocket.link(self, socket)
             EventEmitter.on(self, "close", do_closed)
             EventEmitter.on(socket, "close", do_closed)
+            BaseSocket.link(self, socket)
             return main.switch()
 
         async def join(self):
             if self._state == STATE_CLOSED:
                 return
-            if self._close_error_registed:
-                EventEmitter.off(self, "close", self._on_close_handle)
-                EventEmitter.off(self, "error", self._on_error_handle)
-                self._close_error_registed = False
 
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
@@ -278,10 +270,6 @@ def warp_coroutine(BaseSocket, BaseServer):
         async def closeof(self):
             if self._state == STATE_CLOSED:
                 return
-            if self._close_error_registed:
-                EventEmitter.off(self, "close", self._on_close_handle)
-                EventEmitter.off(self, "error", self._on_error_handle)
-                self._close_error_registed = False
 
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
@@ -294,10 +282,6 @@ def warp_coroutine(BaseSocket, BaseServer):
         async def join(self):
             if self._state == STATE_CLOSED:
                 return
-            if self._close_error_registed:
-                EventEmitter.off(self, "close", self._on_close_handle)
-                EventEmitter.off(self, "error", self._on_error_handle)
-                self._close_error_registed = False
 
             child_gr = greenlet.getcurrent()
             main = child_gr.parent
