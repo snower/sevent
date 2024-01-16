@@ -7,8 +7,8 @@ import sevent
 loop = sevent.instance()
 
 def on_data(s, address, data):
-    print address, data
-    s.write(address, "dsfsdfsfs")
+    print(address, data)
+    s.write((b"hello world!", address))
 
 server = sevent.udp.Server()
 server.bind(("0.0.0.0", 20000))
