@@ -207,9 +207,18 @@ def warp_speed_limit_write(conn, status, key):
 def warp_delay_write(delayer, warp_write_func):
     def _(conn, status, key):
         origin_write = warp_write_func(conn, status, key)
+        origin_end = conn.end
         buffer = sevent.buffer.Buffer()
         key = "delay_%s_buffer_len" % id(buffer)
         status[key] = 0
+        end_key = "delay_recv_is_end" if key == "recv_len" else "delay_send_is_end"
+        status[end_key] = False
+
+        def warp_end():
+            if status[key] <= 0:
+                return origin_end()
+            status[end_key] = True
+        conn.end = warp_end
 
         def delay_write(data, data_len):
             status[key] -= buffer.fetch(data, data_len)
@@ -217,6 +226,10 @@ def warp_delay_write(delayer, warp_write_func):
                 return origin_write(buffer)
             except sevent.tcp.SocketClosed:
                 return False
+            finally:
+                if not data and status[end_key]:
+                    status[end_key] = False
+                    sevent.current().add_async(origin_end)
 
         def __(data):
             data_len = max(len(data) - status[key], 0)
