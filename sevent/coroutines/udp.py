@@ -151,21 +151,22 @@ def warp_coroutine(BaseSocket, BaseServer):
             EventEmitter.on(self, "close", lambda socket: child_gr.switch())
             return main.switch()
 
-    class Server(BaseServer):
+    class Server(BaseServer, Socket):
         _bind_greenlet = None
-        _close_error_registed = False
 
         def _on_close_handle(self, socket):
             if self._bind_greenlet is not None:
                 EventEmitter.off(self, "bind", self._on_bind_handle)
                 child_gr, self._bind_greenlet = self._bind_greenlet, None
                 child_gr.throw(SocketClosed())
+            Socket._on_close_handle(self, socket)
 
         def _on_error_handle(self, socket, e):
             if self._bind_greenlet is not None:
                 EventEmitter.off(self, "bind", self._on_bind_handle)
                 child_gr, self._bind_greenlet = self._bind_greenlet, None
                 child_gr.throw(e)
+            Socket._on_error_handle(self, socket, e)
 
         def _on_bind_handle(self, server):
             if self._bind_greenlet is None:
@@ -191,29 +192,6 @@ def warp_coroutine(BaseSocket, BaseServer):
 
             EventEmitter.on(self, "bind", self._on_bind_handle)
             self.bind(address)
-            return main.switch()
-
-        async def closeof(self):
-            if self._state == STATE_CLOSED:
-                return
-
-            child_gr = greenlet.getcurrent()
-            main = child_gr.parent
-            assert main is not None, "must be running in async func"
-
-            EventEmitter.on(self, "close", lambda socket: child_gr.switch())
-            self.end()
-            return main.switch()
-
-        async def join(self):
-            if self._state == STATE_CLOSED:
-                return
-
-            child_gr = greenlet.getcurrent()
-            main = child_gr.parent
-            assert main is not None, "must be running in async func"
-
-            EventEmitter.on(self, "close", lambda socket: child_gr.switch())
             return main.switch()
 
     return Socket, Server
