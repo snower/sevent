@@ -82,7 +82,7 @@ class TimeoutHandler(object):
         self.canceled = False
 
     def __cmp__(self, other):
-        return cmp(self.deadline, other.deadline)
+        return (self.deadline > other.deadline) - (self.deadline < other.deadline)
 
     def __eq__(self, other):
         return self.deadline == other.deadline
