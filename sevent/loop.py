@@ -20,12 +20,18 @@ _mul_ioloop = False
 
 def instance():
     global _ioloop_cls, _ioloop, _mul_ioloop
-    if _thread_local._sevent_ioloop is not None:
-        return _thread_local._sevent_ioloop
-
-    with _ioloop_lock:
+    try:
         if _thread_local._sevent_ioloop is not None:
             return _thread_local._sevent_ioloop
+    except AttributeError:
+        pass
+
+    with _ioloop_lock:
+        try:
+            if _thread_local._sevent_ioloop is not None:
+                return _thread_local._sevent_ioloop
+        except AttributeError:
+            pass
 
         if 'epoll' in select.__dict__:
             from .impl import epoll_loop
@@ -51,7 +57,10 @@ def instance():
 def current():
     if not _mul_ioloop:
         return _ioloop
-    return _thread_local._sevent_ioloop
+    try:
+        return _thread_local._sevent_ioloop
+    except AttributeError:
+        return _ioloop
 
 
 # these values are defined as the same as poll
