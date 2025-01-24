@@ -64,6 +64,10 @@ class Socket(EventEmitter):
                 self._loop.add_async(self._error, e)
 
     @property
+    def state(self):
+        return self._state
+
+    @property
     def address(self):
         return self._address
 
@@ -797,6 +801,107 @@ class Server(EventEmitter):
             self._loop.add_async(on_close)
 
 
+class WarpSocket(Socket):
+    def __init__(self, socket, loop=None, max_buffer_size=None):
+        EventEmitter.__init__(self)
+        self._loop = loop or instance()
+        self._socket = socket
+        self._max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE
+        self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
+        self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
+        self._state = socket.state
+
+        self._socket.on_connect(self._do_connect)
+        self._socket.on_end(self._do_end)
+        self._socket.on_close(self._do_close)
+        self._socket.on_error(self._do_error)
+        self._socket.on_drain(self._do_drain)
+        self._socket.on_data(lambda _, data: self.read(data))
+
+        rbuffers, wbuffers = self._socket.buffer
+        self._rbuffers.on_drain(lambda _: rbuffers.do_drain())
+        self._rbuffers.on_regain(lambda _: rbuffers.do_regain())
+        wbuffers.on_drain(lambda _: self._wbuffers.do_drain())
+        wbuffers.on_regain(lambda _: self._wbuffers.do_regain())
+
+    @property
+    def state(self):
+        return self._socket.state
+
+    @property
+    def address(self):
+        return self._socket.address
+
+    @property
+    def socket(self):
+        return self._socket.socket
+
+    @property
+    def buffer(self):
+        return self._rbuffers, self._wbuffers
+
+    @property
+    def is_enable_fast_open(self):
+        return self._socket.is_enable_fast_open
+
+    def enable_nodelay(self):
+        self._socket.enable_nodelay()
+
+    @property
+    def is_enable_nodelay(self):
+        return self._socket.is_enable_nodelay
+
+    def end(self):
+        self._socket.end()
+        self._state = self._socket.state
+
+    def close(self):
+        self._socket.close()
+        self._state = self._socket.state
+
+    def connect(self, address, timeout=5):
+        self._socket.connect(address, timeout)
+        self._state = self._socket.state
+
+    def drain(self):
+        self._socket.drain()
+
+    def regain(self):
+        self._socket.regain()
+
+    def _do_connect(self, socket):
+        self._state = self._socket.state
+        self.emit_connect(self)
+
+    def _do_end(self, socket):
+        self._state = self._socket.state
+        self.emit_end(self)
+
+    def _do_close(self, socket):
+        self._state = self._socket.state
+        self.emit_close(self)
+
+    def _do_error(self, socket, error):
+        self._state = self._socket.state
+        self.emit_error(self, error)
+
+    def _do_drain(self, socket):
+        self._state = self._socket.state
+        self.emit_drain(self)
+
+    def read(self, data):
+        if data.__class__ == Buffer:
+            BaseBuffer.extend(self._rbuffers, data)
+        else:
+            BaseBuffer.write(self._rbuffers, data)
+        if data._full and data._len < data._regain_size:
+            data.do_regain()
+        self.emit_data(self, self._rbuffers)
+
+    def write(self, data):
+        self._socket.write(data)
+
+
 if is_py3:
     from .coroutines.tcp import warp_coroutine
-    Socket, Server = warp_coroutine(Socket, Server)
+    Socket, Server, WarpSocket = warp_coroutine(Socket, Server, WarpSocket)

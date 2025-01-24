@@ -50,6 +50,10 @@ class Socket(EventEmitter):
         self.ignore_write_closed_error = False
 
     @property
+    def state(self):
+        return self._state
+
+    @property
     def socket(self):
         return self._socket
 

@@ -14,7 +14,7 @@ STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
 
 
-def warp_coroutine(BaseSocket, BaseServer):
+def warp_coroutine(BaseSocket, BaseServer, BaseWarpSocket):
     class Socket(BaseSocket):
         _connect_greenlet = None
         _send_greenlet = None
@@ -294,4 +294,8 @@ def warp_coroutine(BaseSocket, BaseServer):
             EventEmitter.on(self, "close", lambda server: child_gr.switch())
             return main.switch()
 
-    return Socket, Server
+    class WarpSocket(BaseWarpSocket, Socket):
+        def __init__(self, socket, loop=None, max_buffer_size=None):
+            BaseWarpSocket.__init__(self, socket, loop, max_buffer_size)
+
+    return Socket, Server, WarpSocket
