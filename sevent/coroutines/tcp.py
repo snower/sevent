@@ -14,7 +14,7 @@ STATE_CLOSING = 0x10
 STATE_CLOSED = 0x20
 
 
-def warp_coroutine(BaseSocket, BaseServer, BaseWarpSocket):
+def warp_coroutine(BaseSocket, BaseServer, BaseWarpSocket, BaseWarpServer):
     class Socket(BaseSocket):
         _connect_greenlet = None
         _send_greenlet = None
@@ -294,8 +294,24 @@ def warp_coroutine(BaseSocket, BaseServer, BaseWarpSocket):
             EventEmitter.on(self, "close", lambda server: child_gr.switch())
             return main.switch()
 
-    class WarpSocket(BaseWarpSocket, Socket):
-        def __init__(self, socket, loop=None, max_buffer_size=None):
-            BaseWarpSocket.__init__(self, socket, loop, max_buffer_size)
 
-    return Socket, Server, WarpSocket
+    class WarpSocket(BaseWarpSocket, Socket):
+        def __init__(self, socket=None, loop=None, dns_resolver=None, max_buffer_size=None):
+            BaseWarpSocket.__init__(self, socket or Socket(loop=loop, dns_resolver=dns_resolver,
+                                                           max_buffer_size=max_buffer_size),
+                                    loop, dns_resolver, max_buffer_size)
+
+
+    class WarpServer(BaseWarpServer, Server):
+        def __init__(self, socket=None, loop=None, dns_resolver=None):
+            BaseWarpServer.__init__(self, socket or Server(loop=loop, dns_resolver=dns_resolver), loop, dns_resolver)
+
+        def handshake(self, socket):
+            self._loop.call_async(self.handshakeof, socket)
+
+        async def handshakeof(self, socket):
+            max_buffer_size = socket._max_buffer_size if hasattr(socket, "_max_buffer_size") else None
+            self.emit_connection(self, WarpSocket(socket, loop=self._loop, max_buffer_size=max_buffer_size))
+
+
+    return Socket, Server, WarpSocket, WarpServer

@@ -702,6 +702,14 @@ class Server(EventEmitter):
         self._is_enable_nodelay = True
 
     @property
+    def state(self):
+        return self._state
+
+    @property
+    def socket(self):
+        return self._socket
+
+    @property
     def is_enable_fast_open(self):
         return self._is_enable_fast_open
 
@@ -802,14 +810,15 @@ class Server(EventEmitter):
 
 
 class WarpSocket(Socket):
-    def __init__(self, socket, loop=None, max_buffer_size=None):
+    def __init__(self, socket=None, loop=None, dns_resolver=None, max_buffer_size=None):
         EventEmitter.__init__(self)
         self._loop = loop or instance()
-        self._socket = socket
+        self._socket = socket or Socket(loop=self._loop, dns_resolver=dns_resolver,
+                                        max_buffer_size=max_buffer_size)
         self._max_buffer_size = max_buffer_size or self.MAX_BUFFER_SIZE
         self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
-        self._state = socket.state
+        self._state = self._socket.state
 
         self._socket.on_connect(self._do_connect)
         self._socket.on_end(self._do_end)
@@ -879,7 +888,14 @@ class WarpSocket(Socket):
 
     def _do_close(self, socket):
         self._state = self._socket.state
-        self.emit_close(self)
+        try:
+            self.emit_close(self)
+        finally:
+            self.remove_all_listeners()
+            self._rbuffers.close()
+            self._wbuffers.close()
+            self._rbuffers = None
+            self._wbuffers = None
 
     def _do_error(self, socket, error):
         self._state = self._socket.state
@@ -902,6 +918,70 @@ class WarpSocket(Socket):
         self._socket.write(data)
 
 
+class WarpServer(Server):
+    def __init__(self, socket=None, loop=None, dns_resolver=None):
+        EventEmitter.__init__(self)
+        self._loop = loop or instance()
+        self._socket = socket or Server(loop=self._loop, dns_resolver=dns_resolver)
+        self._state = self._socket.state
+
+        self._socket.on_close(self._do_close)
+        self._socket.on_error(self._do_error)
+        self._socket.on_connection(lambda _, socket: self.handshake(socket))
+
+    def enable_fast_open(self):
+        self._socket.enable_fast_open()
+
+    def enable_reuseaddr(self):
+        self._socket.enable_reuseaddr()
+
+    def enable_nodelay(self):
+        self._socket.enable_nodelay()
+
+    @property
+    def state(self):
+        return self._socket._state
+
+    @property
+    def socket(self):
+        return self._socket.socket
+
+    @property
+    def is_enable_fast_open(self):
+        return self._socket.is_enable_fast_open
+
+    @property
+    def is_reuseaddr(self):
+        return self._socket.is_reuseaddr
+
+    @property
+    def is_enable_nodelay(self):
+        return self._socket.is_enable_nodelay
+
+    def listen(self, address, backlog=128):
+        self._socket.listen(address, backlog)
+        self._state = self._socket.state
+
+    def close(self):
+        self._socket.close()
+        self._state = self._socket.state
+
+    def _do_close(self, socket):
+        self._state = self._socket.state
+        try:
+            self.emit_close(self)
+        finally:
+            self.remove_all_listeners()
+
+    def _do_error(self, socket, error):
+        self._state = self._socket.state
+        self.emit_error(self, error)
+
+    def handshake(self, socket):
+        max_buffer_size = socket._max_buffer_size if hasattr(socket, "_max_buffer_size") else None
+        self.emit_connection(self, WarpSocket(socket, loop=self._loop, max_buffer_size=max_buffer_size))
+
+
 if is_py3:
     from .coroutines.tcp import warp_coroutine
-    Socket, Server, WarpSocket = warp_coroutine(Socket, Server, WarpSocket)
+    Socket, Server, WarpSocket, WarpServer = warp_coroutine(Socket, Server, WarpSocket, WarpServer)
