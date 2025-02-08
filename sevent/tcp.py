@@ -908,11 +908,13 @@ class WarpSocket(Socket):
     def read(self, data):
         if data.__class__ == Buffer:
             BaseBuffer.extend(self._rbuffers, data)
+            if data._full and data._len < data._regain_size:
+                data.do_regain()
         else:
             BaseBuffer.write(self._rbuffers, data)
-        if data._full and data._len < data._regain_size:
-            data.do_regain()
         self.emit_data(self, self._rbuffers)
+        if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+            self._rbuffers.do_drain()
 
     def write(self, data):
         self._socket.write(data)
