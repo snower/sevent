@@ -11,6 +11,7 @@ from . import udp
 from . import pipe
 from .buffer import Buffer
 from .dns import DNSResolver
+from . import sslsocket as ssl
 from . import errors
 
 if is_py3:

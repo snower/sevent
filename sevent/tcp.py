@@ -917,7 +917,7 @@ class WarpSocket(Socket):
             self._rbuffers.do_drain()
 
     def write(self, data):
-        self._socket.write(data)
+        return self._socket.write(data)
 
 
 class WarpServer(Server):

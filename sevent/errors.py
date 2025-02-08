@@ -31,3 +31,11 @@ class ConnectError(SeventException):
 
         self.address = address
         self.socket_error = socket_error
+
+
+class SSLConnectError(ConnectError):
+    pass
+
+
+class SSLSocketError(SeventException):
+    pass
