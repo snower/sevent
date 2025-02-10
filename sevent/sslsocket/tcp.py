@@ -17,20 +17,22 @@ class SSLSocket(WarpSocket):
     def load_default_context(cls):
         if cls._default_context is None:
             cls._default_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            cls._default_context.load_default_certs()
+            cls._default_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
         return cls._default_context
 
-    def __init__(self, context=None, server_hostname=None, session=None, *args, **kwargs):
+    def __init__(self, context=None, server_side=False, server_hostname=None, session=None, *args, **kwargs):
         WarpSocket.__init__(self, *args, **kwargs)
 
         self._context = context or self.load_default_context()
+        self._server_side = server_side
         self._handshaked = False
         self._shutdowned = None
         self._incoming = ssl.MemoryBIO()
         self._outgoing = ssl.MemoryBIO()
-        self._ssl_bio = self._context.wrap_bio(self._incoming, self._outgoing, False, server_hostname, session)
+        self._ssl_bio = self._context.wrap_bio(self._incoming, self._outgoing, server_side, server_hostname, session)
         self._connect_timeout = 5
         self._connect_timestamp = 0
+        self._handshake_callback = None
         self._handshake_timeout_handler = None
         self._shutdown_timeout_handler = None
 
@@ -59,15 +61,8 @@ class SSLSocket(WarpSocket):
         if self._handshaked:
             WarpSocket._do_connect(self, socket)
             return
-
-        def on_timeout_cb():
-            self._handshake_timeout_handler = None
-            if self._handshaked:
-                return
-            self._error(ConnectTimeout("ssl handshake time out %s" % str(self.address)))
         timeout = max(1.0, self._connect_timeout - (time.time() - self._connect_timestamp))
-        self._handshake_timeout_handler = self._loop.add_timeout(timeout, on_timeout_cb)
-        self.do_handshake()
+        self.start_handshake(timeout, lambda _: self._loop.add_async(WarpSocket._do_connect, self, self._socket))
 
     def _do_close(self, socket):
         self._incoming = None
@@ -75,6 +70,16 @@ class SSLSocket(WarpSocket):
         self._ssl_bio = None
         self._context = None
         WarpSocket._do_close(self, socket)
+
+    def start_handshake(self, timeout, handshake_callback):
+        self._handshake_callback = handshake_callback
+        def on_timeout_cb():
+            self._handshake_timeout_handler = None
+            if self._handshaked:
+                return
+            self._error(ConnectTimeout("ssl handshake time out %s" % str(self.address)))
+        self._handshake_timeout_handler = self._loop.add_timeout(max(1, timeout), on_timeout_cb)
+        self.do_handshake()
 
     def read(self, data):
         if data.__class__ == Buffer:
@@ -135,7 +140,9 @@ class SSLSocket(WarpSocket):
                 if self._handshake_timeout_handler:
                     self._loop.cancel_timeout(self._handshake_timeout_handler)
                     self._handshake_timeout_handler = None
-                WarpSocket._do_connect(self, self._socket)
+                handshake_callback, self._handshake_callback = self._handshake_callback, None
+                if handshake_callback is not None:
+                    handshake_callback(self)
                 return False
             except ssl.SSLWantReadError:
                 self.flush()
@@ -174,7 +181,21 @@ class SSLSocket(WarpSocket):
 
 
 class SSLServer(WarpServer):
+    _default_context = None
+
+    @classmethod
+    def load_default_context(cls):
+        if cls._default_context is None:
+            cls._default_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            cls._default_context.load_default_certs(ssl.Purpose.CLIENT_AUTH)
+        return cls._default_context
+
     def __init__(self, context, *args, **kwargs):
-        WarpSocket.__init__(self, *args, **kwargs)
+        WarpServer.__init__(self, *args, **kwargs)
 
         self._context = context
+
+    def handshake(self, socket):
+        max_buffer_size = socket._max_buffer_size if hasattr(socket, "_max_buffer_size") else None
+        socket = SSLSocket(context=self._context, server_side=True, socket=socket, loop=self._loop, max_buffer_size=max_buffer_size)
+        socket.start_handshake(30, lambda _: self._loop.add_async(self.emit_connection, self, socket))
