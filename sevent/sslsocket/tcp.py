@@ -228,7 +228,7 @@ class SSLSocket(WarpSocket):
 
 class SSLServer(WarpServer):
     @classmethod
-    def load_default_context(cls):
+    def create_server_context(cls):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_default_certs(ssl.Purpose.CLIENT_AUTH)
         return context
