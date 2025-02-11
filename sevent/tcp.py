@@ -929,7 +929,8 @@ class WarpServer(Server):
 
         self._socket.on_close(self._do_close)
         self._socket.on_error(self._do_error)
-        self._socket.on_connection(lambda _, socket: self.handshake(socket))
+        self._socket.on_listen(self._do_listen)
+        self._socket.on_connection(lambda _, s: self.handshake(s))
 
     def enable_fast_open(self):
         self._socket.enable_fast_open()
@@ -978,6 +979,10 @@ class WarpServer(Server):
     def _do_error(self, socket, error):
         self._state = self._socket.state
         self.emit_error(self, error)
+
+    def _do_listen(self, socket):
+        self._state = self._socket.state
+        self.emit_listen(self)
 
     def handshake(self, socket):
         max_buffer_size = socket._max_buffer_size if hasattr(socket, "_max_buffer_size") else None

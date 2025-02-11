@@ -44,6 +44,22 @@ class SSLSocket(WarpSocket):
     def sslobj(self):
         return self._ssl_bio
 
+    @property
+    def session(self):
+        if self._ssl_bio is not None:
+            return self._ssl_bio.session
+        return None
+
+    @property
+    def server_side(self):
+        return self._server_side
+
+    @property
+    def server_hostname(self):
+        if self._ssl_bio is not None:
+            return self._ssl_bio.server_hostname
+        return None
+
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:
             if self._state == STATE_CLOSED:
@@ -55,6 +71,10 @@ class SSLSocket(WarpSocket):
 
     def close(self):
         if self._state == STATE_CLOSED or self._shutdowned is not None:
+            return
+        if not self._handshaked:
+            self._shutdowned = True
+            WarpSocket.close(self)
             return
         def on_timeout_cb():
             self._shutdown_timeout_handler = None
@@ -171,14 +191,17 @@ class SSLSocket(WarpSocket):
                 if self._outgoing.pending:
                     self.flush()
             except Exception as e:
-                self._loop.add_async(self._error, SSLConnectError(self.address, str(e)))
+                self._loop.add_async(self._error, SSLConnectError(self.address, e, "ssl handshake error %s %s" % (str(self.address), e)))
                 break
         return True
 
     def do_shutdown(self):
+        if self._shutdowned is True:
+            return
         while True:
             try:
-                self._ssl_bio.unwrap()
+                if self._handshaked:
+                    self._ssl_bio.unwrap()
                 self._shutdowned = True
                 WarpSocket.close(self)
                 if self._shutdown_timeout_handler:
@@ -204,14 +227,11 @@ class SSLSocket(WarpSocket):
 
 
 class SSLServer(WarpServer):
-    _default_context = None
-
     @classmethod
     def load_default_context(cls):
-        if cls._default_context is None:
-            cls._default_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            cls._default_context.load_default_certs(ssl.Purpose.CLIENT_AUTH)
-        return cls._default_context
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_default_certs(ssl.Purpose.CLIENT_AUTH)
+        return context
 
     def __init__(self, context, *args, **kwargs):
         WarpServer.__init__(self, *args, **kwargs)
