@@ -36,6 +36,14 @@ class SSLSocket(WarpSocket):
         self._handshake_timeout_handler = None
         self._shutdown_timeout_handler = None
 
+    @property
+    def context(self):
+        return self._context
+
+    @property
+    def sslobj(self):
+        return self._ssl_bio
+
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:
             if self._state == STATE_CLOSED:
@@ -69,6 +77,13 @@ class SSLSocket(WarpSocket):
         self._outgoing = None
         self._ssl_bio = None
         self._context = None
+        self._shutdowned = True
+        if self._handshake_timeout_handler:
+            self._loop.cancel_timeout(self._handshake_timeout_handler)
+            self._handshake_timeout_handler = None
+        if self._shutdown_timeout_handler:
+            self._loop.cancel_timeout(self._shutdown_timeout_handler)
+            self._shutdown_timeout_handler = None
         WarpSocket._do_close(self, socket)
 
     def start_handshake(self, timeout, handshake_callback):
@@ -91,17 +106,19 @@ class SSLSocket(WarpSocket):
 
         try:
             last_data_len = self._rbuffers._len
-            while True:
+            while self._incoming.pending:
                 try:
-                    chunk = self._ssl_bio.read(8192)
+                    chunk = self._ssl_bio.read(self._incoming.pending)
                     if not chunk:
                         break
                     BaseBuffer.write(self._rbuffers, chunk)
                 except ssl.SSLWantReadError:
-                    self.flush()
+                    if self._outgoing.pending:
+                        self.flush()
                     break
                 except ssl.SSLWantWriteError:
-                    self.flush()
+                    if self._outgoing.pending:
+                        self.flush()
             if last_data_len < self._rbuffers._len:
                 if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                     self._rbuffers.do_drain()
@@ -125,7 +142,8 @@ class SSLSocket(WarpSocket):
             if data.__class__ == Buffer:
                 data = data.read()
             self._ssl_bio.write(data)
-            self.flush()
+            if self._outgoing.pending:
+                self.flush()
         except Exception as e:
             self._loop.add_async(self._error, SSLSocketError(str(e)))
 
@@ -136,7 +154,8 @@ class SSLSocket(WarpSocket):
                 self._handshaked = True
                 if self._wbuffers:
                     self._ssl_bio.write(self._wbuffers.read())
-                    self.flush()
+                    if self._outgoing.pending:
+                        self.flush()
                 if self._handshake_timeout_handler:
                     self._loop.cancel_timeout(self._handshake_timeout_handler)
                     self._handshake_timeout_handler = None
@@ -145,10 +164,12 @@ class SSLSocket(WarpSocket):
                     handshake_callback(self)
                 return False
             except ssl.SSLWantReadError:
-                self.flush()
+                if self._outgoing.pending:
+                    self.flush()
                 break
             except ssl.SSLWantWriteError:
-                self.flush()
+                if self._outgoing.pending:
+                    self.flush()
             except Exception as e:
                 self._loop.add_async(self._error, SSLConnectError(self.address, str(e)))
                 break
@@ -165,10 +186,12 @@ class SSLSocket(WarpSocket):
                     self._shutdown_timeout_handler = None
                 break
             except ssl.SSLWantReadError:
-                self.flush()
+                if self._outgoing.pending:
+                    self.flush()
                 break
             except ssl.SSLWantWriteError:
-                self.flush()
+                if self._outgoing.pending:
+                    self.flush()
             except Exception as e:
                 self._loop.add_async(self._error, SSLSocketError(str(e)))
                 break
@@ -186,7 +209,7 @@ class SSLServer(WarpServer):
     @classmethod
     def load_default_context(cls):
         if cls._default_context is None:
-            cls._default_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            cls._default_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             cls._default_context.load_default_certs(ssl.Purpose.CLIENT_AUTH)
         return cls._default_context
 
@@ -194,6 +217,10 @@ class SSLServer(WarpServer):
         WarpServer.__init__(self, *args, **kwargs)
 
         self._context = context
+
+    @property
+    def context(self):
+        return self._context
 
     def handshake(self, socket):
         max_buffer_size = socket._max_buffer_size if hasattr(socket, "_max_buffer_size") else None
