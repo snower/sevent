@@ -70,9 +70,9 @@ class SSLSocket(WarpSocket):
         WarpSocket.connect(self, address, timeout)
 
     def close(self):
-        if self._state == STATE_CLOSED or self._shutdowned is not None:
+        if self._state == STATE_CLOSED or self._shutdowned is False:
             return
-        if not self._handshaked:
+        if not self._handshaked or self._shutdowned is True:
             self._shutdowned = True
             WarpSocket.close(self)
             return
@@ -80,6 +80,7 @@ class SSLSocket(WarpSocket):
             self._shutdown_timeout_handler = None
             if self._shutdowned is True:
                 return
+            self._shutdowned = True
             self._error(ConnectTimeout("ssl shutdown time out %s" % str(self.address)))
         self._shutdown_timeout_handler = self._loop.add_timeout(30, on_timeout_cb)
         self._shutdowned = False
@@ -216,6 +217,7 @@ class SSLSocket(WarpSocket):
                 if self._outgoing.pending:
                     self.flush()
             except Exception as e:
+                self._shutdowned = True
                 self._loop.add_async(self._error, SSLSocketError(str(e)))
                 break
 
