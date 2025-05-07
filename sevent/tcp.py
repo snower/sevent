@@ -879,15 +879,15 @@ class WarpSocket(Socket):
         self._socket.regain()
 
     def _do_connect(self, socket):
-        self._state = self._socket.state
+        self._state = STATE_STREAMING
         self.emit_connect(self)
 
     def _do_end(self, socket):
-        self._state = self._socket.state
+        self._state = STATE_CLOSING
         self.emit_end(self)
 
     def _do_close(self, socket):
-        self._state = self._socket.state
+        self._state = STATE_CLOSED
         try:
             self.emit_close(self)
         finally:
@@ -898,11 +898,9 @@ class WarpSocket(Socket):
             self._wbuffers = None
 
     def _do_error(self, socket, error):
-        self._state = self._socket.state
         self.emit_error(self, error)
 
     def _do_drain(self, socket):
-        self._state = self._socket.state
         self.emit_drain(self)
 
     def read(self, data):
@@ -970,18 +968,17 @@ class WarpServer(Server):
         self._state = self._socket.state
 
     def _do_close(self, socket):
-        self._state = self._socket.state
+        self._state = STATE_CLOSED
         try:
             self.emit_close(self)
         finally:
             self.remove_all_listeners()
 
     def _do_error(self, socket, error):
-        self._state = self._socket.state
         self.emit_error(self, error)
 
     def _do_listen(self, socket):
-        self._state = self._socket.state
+        self._state = STATE_LISTENING
         self.emit_listen(self)
 
     def handshake(self, socket):

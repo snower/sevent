@@ -7,7 +7,7 @@ import time
 
 from ..buffer import Buffer, BaseBuffer
 from ..errors import SSLConnectError, SSLSocketError, SocketClosed, ConnectTimeout
-from ..tcp import WarpSocket, WarpServer, STATE_INITIALIZED, STATE_CLOSED
+from ..tcp import WarpSocket, WarpServer, STATE_INITIALIZED, STATE_CONNECTING, STATE_CLOSED
 
 
 class SSLSocket(WarpSocket):
@@ -87,6 +87,10 @@ class SSLSocket(WarpSocket):
         self.do_shutdown()
 
     def _do_connect(self, socket):
+        if self._state not in (STATE_INITIALIZED, STATE_CONNECTING):
+            self._shutdowned = True
+            WarpSocket.close(self)
+            return
         if self._handshaked:
             WarpSocket._do_connect(self, socket)
             return
@@ -94,6 +98,8 @@ class SSLSocket(WarpSocket):
         self.start_handshake(timeout, lambda _: self._loop.add_async(WarpSocket._do_connect, self, self._socket))
 
     def _do_close(self, socket):
+        if self._ssl_bio is None or self._context is None:
+            return
         self._incoming = None
         self._outgoing = None
         self._ssl_bio = None
@@ -118,6 +124,8 @@ class SSLSocket(WarpSocket):
         self.do_handshake()
 
     def read(self, data):
+        if self._state == STATE_CLOSED:
+            return
         if data.__class__ == Buffer:
             self._incoming.write(data.read())
         else:
@@ -140,14 +148,19 @@ class SSLSocket(WarpSocket):
                 except ssl.SSLWantWriteError:
                     if self._outgoing.pending:
                         self.flush()
+                except (ssl.SSLZeroReturnError, ssl.SSLEOFError):
+                    break
             if last_data_len < self._rbuffers._len:
                 if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                     self._rbuffers.do_drain()
                 self._loop.add_async(self.emit_data, self, self._rbuffers)
         except Exception as e:
+            self._shutdowned = True
             self._loop.add_async(self._error, SSLSocketError(str(e)))
 
     def write(self, data):
+        if self._state == STATE_CLOSED:
+            return False
         try:
             if not self._handshaked:
                 if data.__class__ == Buffer:
@@ -163,10 +176,12 @@ class SSLSocket(WarpSocket):
             if data.__class__ == Buffer:
                 data = data.read()
             self._ssl_bio.write(data)
-            if self._outgoing.pending:
-                self.flush()
         except Exception as e:
+            self._shutdowned = True
             self._loop.add_async(self._error, SSLSocketError(str(e)))
+        if self._outgoing.pending:
+            return self.flush()
+        return True
 
     def do_handshake(self):
         while True:
@@ -192,6 +207,7 @@ class SSLSocket(WarpSocket):
                 if self._outgoing.pending:
                     self.flush()
             except Exception as e:
+                self._shutdowned = True
                 self._loop.add_async(self._error, SSLConnectError(self.address, e, "ssl handshake error %s %s" % (str(self.address), e)))
                 break
         return True
@@ -224,8 +240,8 @@ class SSLSocket(WarpSocket):
     def flush(self):
         data = self._outgoing.read()
         if not data:
-            return
-        WarpSocket.write(self, data)
+            return True
+        return WarpSocket.write(self, data)
 
 
 class SSLServer(WarpServer):
