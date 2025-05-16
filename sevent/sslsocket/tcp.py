@@ -187,6 +187,8 @@ class SSLSocket(WarpSocket):
         while True:
             try:
                 self._ssl_bio.do_handshake()
+                if self._outgoing.pending:
+                    self.flush()
                 self._handshaked = True
                 if self._wbuffers:
                     self._ssl_bio.write(self._wbuffers.read())
@@ -219,6 +221,8 @@ class SSLSocket(WarpSocket):
             try:
                 if self._handshaked:
                     self._ssl_bio.unwrap()
+                    if self._outgoing.pending:
+                        self.flush()
                 self._shutdowned = True
                 WarpSocket.close(self)
                 if self._shutdown_timeout_handler:
