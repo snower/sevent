@@ -230,12 +230,12 @@ class Socket(EventEmitter):
                 try:
                     self._socket.close()
                 except Exception as e:
-                    get_logger().error("socket close socket error:%s", e)
+                    get_logger().error("socket close socket error: %s", e)
 
             try:
                 self.emit_close(self)
             except Exception as e:
-                get_logger().exception("tcp emit close error:%s", e)
+                get_logger().exception("tcp emit close error: %s", e)
             self.remove_all_listeners()
             self._rbuffers.close()
             self._wbuffers.close()
@@ -248,7 +248,7 @@ class Socket(EventEmitter):
         self._loop.add_async(self.emit_error, self, error)
         self._loop.add_async(self.close)
         if self.emit_error == null_emit_callback:
-            get_logger().error("socket error: %s", error)
+            get_logger().error("UDP %s socket %s error: %s", self, self.socket, error)
 
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_BINDING):

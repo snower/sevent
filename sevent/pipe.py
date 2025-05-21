@@ -206,7 +206,7 @@ class PipeSocket(EventEmitter):
         self._loop.add_async(self.emit_error, self, error)
         self._loop.add_async(self.close)
         if self.emit_error == null_emit_callback:
-            get_logger().error("socket error:%s", error)
+            get_logger().error("Pipe %s socket %s error: %s", self, self.socket, error)
 
     def connect(self, address, timeout=5):
         if self._state != STATE_INITIALIZED:

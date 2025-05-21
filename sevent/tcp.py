@@ -257,7 +257,7 @@ class Socket(EventEmitter):
                 try:
                     self._socket.close()
                 except Exception as e:
-                    get_logger().error("socket close socket error:%s", e)
+                    get_logger().error("socket close socket error: %s", e)
 
             try:
                 self.emit_close(self)
@@ -274,7 +274,7 @@ class Socket(EventEmitter):
         self._loop.add_async(self.emit_error, self, error)
         self._loop.add_async(self.close)
         if self.emit_error == null_emit_callback:
-            get_logger().error("socket error:%s", error)
+            get_logger().error("TCP %s socket %s error: %s", self, self.socket, error)
 
     def _connect_cb(self):
         if self._state != STATE_CONNECTING:
