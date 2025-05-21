@@ -69,13 +69,13 @@ def create_socket(address):
             else:
                 conn = sevent.tcp.Socket()
     else:
-        ssl_ca_file = get_address_environ(address, "SEVENT_SSL_CA_FILE")
+        ssl_ca_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CA_FILE")
         if ssl_ca_file:
             import ssl
             context = ssl.create_default_context()
             if ssl_ca_file != "-":
                 context.load_verify_locations(cafile=ssl_ca_file)
-            if get_address_environ(address, "SEVENT_SSL_INSECURE"):
+            if get_address_environ(address, "SEVENT_HELPERS_SSL_INSECURE"):
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
             conn = sevent.ssl.SSLSocket(context=context, server_hostname=address[0] if address and isinstance(address, tuple) else None)
