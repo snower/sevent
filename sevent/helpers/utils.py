@@ -3,6 +3,7 @@
 # create by: snower
 
 import os
+import string
 import struct
 import signal
 import socket
@@ -12,16 +13,31 @@ def config_signal():
     signal.signal(signal.SIGINT, lambda signum, frame: sevent.current().stop())
     signal.signal(signal.SIGTERM, lambda signum, frame: sevent.current().stop())
 
+def get_address_environ(address, key):
+    if address and isinstance(address, tuple):
+        if isinstance(address[0], str):
+            host_key = "".join([c if c in string.hexdigits else "_" for c in address[0]]).upper()
+            if len(address) >= 2:
+                value = os.environ.get("%s_%s_%s" % (key, host_key, address[1]))
+                if value is not None:
+                    return value
+        if len(address) >= 2:
+            value = os.environ.get("%s_%s" % (key, address[1]))
+            if value is not None:
+                return value
+    return os.environ.get(key)
+
 def create_server(address, *args, **kwargs):
     if "pipe" in address:
         server = sevent.pipe.PipeServer()
     else:
-        ssl_certificate_file, ssl_certificate_key_file = os.environ.get("SEVENT_HELPERS_SSL_CERTIFICATE_FILE"), os.environ.get("SEVENT_HELPERS_SSL_CERTIFICATE_KEY_FILE")
+        ssl_certificate_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CERTIFICATE_FILE")
+        ssl_certificate_key_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CERTIFICATE_KEY_FILE")
         if ssl_certificate_file and ssl_certificate_key_file:
             import ssl
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.load_cert_chain(certfile=ssl_certificate_file, keyfile=ssl_certificate_key_file)
-            if os.environ.get("SEVENT_HELPERS_SSL_INSECURE"):
+            if get_address_environ(address, "SEVENT_HELPERS_SSL_INSECURE"):
                 context.verify_mode = ssl.CERT_NONE
             server = sevent.ssl.SSLServer(context)
         else:
@@ -41,25 +57,25 @@ def create_socket(address):
         if pipe_address in sevent.pipe.PipeServer._bind_servers:
             conn = sevent.pipe.PipeSocket()
         else:
-            ssl_ca_file = os.environ.get("SEVENT_HELPERS_SSL_CA_FILE")
+            ssl_ca_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CA_FILE")
             if ssl_ca_file:
                 import ssl
                 context = ssl.create_default_context()
                 context.load_verify_locations(cafile=ssl_ca_file)
-                if os.environ.get("SEVENT_HELPERS_SSL_INSECURE"):
+                if get_address_environ(address, "SEVENT_HELPERS_SSL_INSECURE"):
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
                 conn = sevent.ssl.SSLSocket(context=context, server_hostname=address[0] if address and isinstance(address, tuple) else None)
             else:
                 conn = sevent.tcp.Socket()
     else:
-        ssl_ca_file = os.environ.get("SEVENT_SSL_CA_FILE")
+        ssl_ca_file = get_address_environ(address, "SEVENT_SSL_CA_FILE")
         if ssl_ca_file:
             import ssl
             context = ssl.create_default_context()
             if ssl_ca_file != "-":
                 context.load_verify_locations(cafile=ssl_ca_file)
-            if os.environ.get("SEVENT_SSL_INSECURE"):
+            if get_address_environ(address, "SEVENT_SSL_INSECURE"):
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
             conn = sevent.ssl.SSLSocket(context=context, server_hostname=address[0] if address and isinstance(address, tuple) else None)
