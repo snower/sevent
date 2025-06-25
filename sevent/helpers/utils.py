@@ -35,10 +35,17 @@ def create_server(address, *args, **kwargs):
         ssl_certificate_key_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CERTIFICATE_KEY_FILE")
         if ssl_certificate_file and ssl_certificate_key_file:
             import ssl
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             context.load_cert_chain(certfile=ssl_certificate_file, keyfile=ssl_certificate_key_file)
+            ssl_ca_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CA_FILE")
+            if ssl_ca_file:
+                context.load_verify_locations(cafile=ssl_ca_file)
             if get_address_environ(address, "SEVENT_HELPERS_SSL_INSECURE"):
                 context.verify_mode = ssl.CERT_NONE
+            elif get_address_environ(address, "SEVENT_HELPERS_SSL_SECURE"):
+                context.verify_mode = ssl.CERT_REQUIRED
+            else:
+                context.verify_mode = ssl.CERT_OPTIONAL
             server = sevent.ssl.SSLServer(context)
         else:
             server = sevent.tcp.Server()
@@ -62,9 +69,15 @@ def create_socket(address):
                 import ssl
                 context = ssl.create_default_context()
                 context.load_verify_locations(cafile=ssl_ca_file)
+                ssl_certificate_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CERTIFICATE_FILE")
+                ssl_certificate_key_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CERTIFICATE_KEY_FILE")
+                if ssl_certificate_file and ssl_certificate_key_file:
+                    context.load_cert_chain(certfile=ssl_certificate_file, keyfile=ssl_certificate_key_file)
                 if get_address_environ(address, "SEVENT_HELPERS_SSL_INSECURE"):
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
+                elif get_address_environ(address, "SEVENT_HELPERS_SSL_INSECURE"):
+                    context.verify_mode = ssl.CERT_REQUIRED
                 conn = sevent.ssl.SSLSocket(context=context, server_hostname=address[0] if address and isinstance(address, tuple) else None)
             else:
                 conn = sevent.tcp.Socket()
@@ -75,9 +88,15 @@ def create_socket(address):
             context = ssl.create_default_context()
             if ssl_ca_file != "-":
                 context.load_verify_locations(cafile=ssl_ca_file)
+            ssl_certificate_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CERTIFICATE_FILE")
+            ssl_certificate_key_file = get_address_environ(address, "SEVENT_HELPERS_SSL_CERTIFICATE_KEY_FILE")
+            if ssl_certificate_file and ssl_certificate_key_file:
+                context.load_cert_chain(certfile=ssl_certificate_file, keyfile=ssl_certificate_key_file)
             if get_address_environ(address, "SEVENT_HELPERS_SSL_INSECURE"):
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
+            elif get_address_environ(address, "SEVENT_HELPERS_SSL_INSECURE"):
+                context.verify_mode = ssl.CERT_REQUIRED
             conn = sevent.ssl.SSLSocket(context=context, server_hostname=address[0] if address and isinstance(address, tuple) else None)
         else:
             conn = sevent.tcp.Socket()
