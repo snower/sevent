@@ -45,6 +45,8 @@ def config_ssl_context(address, context):
         context.set_ecdh_curve(ecdh_curve)
 
 def create_server(address, *args, **kwargs):
+    if not isinstance(address, (tuple, str)):
+        address = tuple(address)
     if "pipe" in address:
         server = sevent.pipe.PipeServer()
     else:
@@ -98,6 +100,8 @@ def create_socket_ssl_context(address, ssl_ca_file):
     return context
 
 def create_socket(address):
+    if not isinstance(address, (tuple, str)):
+        address = tuple(address)
     if "pipe" in address:
         if isinstance(address, (tuple, list)):
             pipe_address = "pipe#%s" % (address[1] if len(address) >= 2 else address[-1])
