@@ -11,7 +11,7 @@ if sys.version_info[0] >= 3:
     byte_type = bytes
 
     def is_int(v):
-        return v.__class__ == int
+        return v.__class__ is int
 
     iter_range = range
 else:
@@ -21,7 +21,7 @@ else:
 
 
     def is_int(v):
-        return v.__class__ == int or v.__class__ == long
+        return v.__class__ is int or v.__class__ is long
 
     iter_range = xrange
 

@@ -263,7 +263,7 @@ class IOLoop(object):
         return handler
 
     def cancel_timeout(self, handler):
-        if handler.__class__ == TimeoutHandler:
+        if handler.__class__ is TimeoutHandler:
             handler.callback = None
             handler.args = None
             handler.kwargs = None

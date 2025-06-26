@@ -408,7 +408,7 @@ class Socket(EventEmitter):
                     self._error(e)
             return False
 
-        if data.__class__ == Buffer:
+        if data.__class__ is Buffer:
             BaseBuffer.extend(self._wbuffers, data)
             if data._full and data._len < data._regain_size:
                 data.do_regain()

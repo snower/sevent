@@ -125,7 +125,7 @@ class SSLSocket(WarpSocket):
     def read(self, data):
         if self._state == STATE_CLOSED:
             return
-        if data.__class__ == Buffer:
+        if data.__class__ is Buffer:
             self._incoming.write(data.read())
         else:
             self._incoming.write(data)
@@ -162,7 +162,7 @@ class SSLSocket(WarpSocket):
             return False
         try:
             if not self._handshaked:
-                if data.__class__ == Buffer:
+                if data.__class__ is Buffer:
                     BaseBuffer.extend(self._wbuffers, data)
                     if data._full and data._len < data._regain_size:
                         data.do_regain()
@@ -172,7 +172,7 @@ class SSLSocket(WarpSocket):
                     self._wbuffers.do_drain()
                 return False
 
-            if data.__class__ == Buffer:
+            if data.__class__ is Buffer:
                 data = data.read()
             self._ssl_bio.write(data)
         except Exception as e:

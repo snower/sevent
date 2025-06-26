@@ -250,7 +250,7 @@ class PipeSocket(EventEmitter):
             raise SocketClosed()
 
         if self._socket._reading:
-            if data.__class__ == Buffer:
+            if data.__class__ is Buffer:
                 BaseBuffer.extend(self._socket._rbuffers, data)
             else:
                 BaseBuffer.write(self._socket._rbuffers, data)
@@ -261,7 +261,7 @@ class PipeSocket(EventEmitter):
                 self._loop.add_async(self.emit_drain, self)
             return True
 
-        if data.__class__ == Buffer:
+        if data.__class__ is Buffer:
             BaseBuffer.extend(self._wbuffers, data)
         else:
             BaseBuffer.write(self._wbuffers, data)

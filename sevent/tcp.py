@@ -568,7 +568,7 @@ class Socket(EventEmitter):
     def write(self, data):
         if self._state != STATE_STREAMING:
             if self._state == STATE_CONNECTING:
-                if data.__class__ == Buffer:
+                if data.__class__ is Buffer:
                     BaseBuffer.extend(self._wbuffers, data)
                     if data._full and data._len < data._regain_size:
                         data.do_regain()
@@ -584,7 +584,7 @@ class Socket(EventEmitter):
                 return False
             raise SocketClosed()
 
-        if data.__class__ == Buffer:
+        if data.__class__ is Buffer:
             BaseBuffer.extend(self._wbuffers, data)
             if data._full and data._len < data._regain_size:
                 data.do_regain()
@@ -904,7 +904,7 @@ class WarpSocket(Socket):
         self.emit_drain(self)
 
     def read(self, data):
-        if data.__class__ == Buffer:
+        if data.__class__ is Buffer:
             BaseBuffer.extend(self._rbuffers, data)
             if data._full and data._len < data._regain_size:
                 data.do_regain()
