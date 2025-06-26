@@ -603,6 +603,9 @@ class Socket(EventEmitter):
                 self._write_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._write_cb)
             except Exception as e:
                 self._error(e)
+            return False
+        if self._wbuffers._len > self._wbuffers._drain_size and not self._wbuffers._full:
+            self._wbuffers.do_drain()
         return False
 
     def link(self, socket):
