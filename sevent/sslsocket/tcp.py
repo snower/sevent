@@ -17,7 +17,6 @@ class SSLSocket(WarpSocket):
     def load_default_context(cls):
         if cls._default_context is None:
             cls._default_context = ssl.create_default_context()
-            cls._default_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
         return cls._default_context
 
     def __init__(self, context=None, server_side=False, server_hostname=None, session=None, *args, **kwargs):
@@ -251,9 +250,7 @@ class SSLSocket(WarpSocket):
 class SSLServer(WarpServer):
     @classmethod
     def create_server_context(cls):
-        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        context.load_default_certs(ssl.Purpose.CLIENT_AUTH)
-        return context
+        return ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
 
     def __init__(self, context, *args, **kwargs):
         WarpServer.__init__(self, *args, **kwargs)
