@@ -9,6 +9,7 @@ import signal
 import socket
 import sevent
 
+ascii_digits_letters = string.ascii_letters + string.digits
 __SSL_CONTEXT_CACHE__ = {}
 
 def config_signal():
@@ -18,7 +19,7 @@ def config_signal():
 def get_address_environ(address, key):
     if address and isinstance(address, tuple):
         if isinstance(address[0], str):
-            host_key = "".join([c if c in string.hexdigits else "_" for c in address[0]]).upper()
+            host_key = "".join([c if c in ascii_digits_letters else "_" for c in address[0]]).upper()
             if len(address) >= 2:
                 value = os.environ.get("%s_%s_%s" % (key, host_key, address[1]))
                 if value is not None:
