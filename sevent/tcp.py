@@ -827,8 +827,8 @@ class WarpSocket(Socket):
         self._socket.on_end(self._do_end)
         self._socket.on_close(self._do_close)
         self._socket.on_error(self._do_error)
-        self._socket.on_drain(self._do_drain)
         self._socket.on_data(lambda _, data: self.read(data))
+        self._has_on_drain_event = False
 
         rbuffers, wbuffers = self._socket.buffer
         self._rbuffers.on_drain(lambda _: rbuffers.do_drain())
@@ -862,6 +862,18 @@ class WarpSocket(Socket):
     @property
     def is_enable_nodelay(self):
         return self._socket.is_enable_nodelay
+
+    def on(self, event_name, callback):
+        if event_name == "drain" and not self._has_on_drain_event:
+            self._socket.on_drain(self._do_drain)
+            self._has_on_drain_event = True
+        Socket.on(self, event_name, callback)
+
+    def once(self, event_name, callback):
+        if event_name == "drain" and not self._has_on_drain_event:
+            self._socket.on_drain(self._do_drain)
+            self._has_on_drain_event = True
+        Socket.once(self, event_name, callback)
 
     def end(self):
         self._socket.end()
@@ -913,9 +925,9 @@ class WarpSocket(Socket):
                 data.do_regain()
         else:
             BaseBuffer.write(self._rbuffers, data)
-        self.emit_data(self, self._rbuffers)
         if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
             self._rbuffers.do_drain()
+        self.emit_data(self, self._rbuffers)
 
     def write(self, data):
         return self._socket.write(data)
