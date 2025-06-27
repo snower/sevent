@@ -100,6 +100,18 @@ def warp_coroutine(BaseSocket, BaseServer):
             assert main is not None, "must be running in async func"
 
             EventEmitter.on(self, "data", self._on_recv_handle)
+            if self._rbuffers._drain_size < size:
+                drain_size, self._rbuffers._drain_size = self._rbuffers._drain_size, size
+                try:
+                    if self._rbuffers._full:
+                        self._rbuffers.do_regain()
+                    return main.switch()
+                finally:
+                    self._rbuffers._drain_size = drain_size
+                    if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+                        self._rbuffers.do_drain()
+            if self._rbuffers._full:
+                self._rbuffers.do_regain()
             return main.switch()
 
         async def closeof(self):
