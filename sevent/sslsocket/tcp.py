@@ -126,29 +126,55 @@ class SSLSocket(WarpSocket):
         if self._state == STATE_CLOSED:
             return
         if data.__class__ is Buffer:
-            self._incoming.write(data.read())
-        else:
-            self._incoming.write(data)
-        if not self._handshaked and self.do_handshake():
+            data = data.read()
+        n = self._incoming.write(data)
+        if n <= 0:
+            if not data:
+                return
+            self._shutdowned = True
+            self._loop.add_async(self._error, SSLSocketError("incoming write return zero"))
             return
+
+        if not self._handshaked:
+            while True:
+                if self.do_handshake():
+                    if n >= len(data):
+                        return
+                    nn = self._incoming.write(data[n:])
+                    if nn <= 0:
+                        self._shutdowned = True
+                        self._loop.add_async(self._error, SSLSocketError("incoming write return zero"))
+                        return
+                    n += nn
+                else:
+                    break
 
         try:
             last_data_len = self._rbuffers._len
-            while self._incoming.pending:
-                try:
-                    chunk = self._ssl_bio.read(self._incoming.pending)
-                    if not chunk:
+            while True:
+                while self._incoming.pending:
+                    try:
+                        chunk = self._ssl_bio.read(self._incoming.pending)
+                        if not chunk:
+                            break
+                        BaseBuffer.write(self._rbuffers, chunk)
+                    except ssl.SSLWantReadError:
+                        if self._outgoing.pending:
+                            self.flush()
                         break
-                    BaseBuffer.write(self._rbuffers, chunk)
-                except ssl.SSLWantReadError:
-                    if self._outgoing.pending:
-                        self.flush()
+                    except ssl.SSLWantWriteError:
+                        if self._outgoing.pending:
+                            self.flush()
+                    except (ssl.SSLZeroReturnError, ssl.SSLEOFError):
+                        break
+                if n >= len(data):
                     break
-                except ssl.SSLWantWriteError:
-                    if self._outgoing.pending:
-                        self.flush()
-                except (ssl.SSLZeroReturnError, ssl.SSLEOFError):
-                    break
+                nn = self._incoming.write(data[n:])
+                if nn <= 0:
+                    self._shutdowned = True
+                    self._loop.add_async(self._error, SSLSocketError("incoming write return zero"))
+                    return
+                n += nn
             if last_data_len < self._rbuffers._len:
                 if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                     self._rbuffers.do_drain()
@@ -174,10 +200,37 @@ class SSLSocket(WarpSocket):
 
             if data.__class__ is Buffer:
                 data = data.read()
-            self._ssl_bio.write(data)
+            try:
+                n = self._ssl_bio.write(data)
+                if n <= 0 and data:
+                    if not self._outgoing.pending:
+                        self._shutdowned = True
+                        self._loop.add_async(self._error, SSLSocketError("outgoing write return zero"))
+                        return
+                    self.flush()
+            except ssl.SSLWantWriteError:
+                if self._outgoing.pending:
+                    self.flush()
+                n = 0
+
+            while n < len(data):
+                try:
+                    nn = self._ssl_bio.write(data[n:])
+                    if nn <= 0:
+                        if not self._outgoing.pending:
+                            self._shutdowned = True
+                            self._loop.add_async(self._error, SSLSocketError("outgoing write return zero"))
+                            return
+                        self.flush()
+                        continue
+                    n += nn
+                except ssl.SSLWantWriteError:
+                    if self._outgoing.pending:
+                        self.flush()
         except Exception as e:
             self._shutdowned = True
             self._loop.add_async(self._error, SSLSocketError(str(e)))
+            return
         if self._outgoing.pending:
             return self.flush()
         return True
@@ -244,7 +297,15 @@ class SSLSocket(WarpSocket):
         data = self._outgoing.read()
         if not data:
             return True
-        return WarpSocket.write(self, data)
+        if not self._outgoing.pending:
+            return WarpSocket.write(self, data)
+        while True:
+            last_state = WarpSocket.write(self, data)
+            data = self._outgoing.read()
+            if not data:
+                return last_state
+            if not self._outgoing.pending:
+                return WarpSocket.write(self, data)
 
 
 class SSLServer(WarpServer):
