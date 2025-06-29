@@ -31,6 +31,19 @@ def get_address_environ(address, key):
     return os.environ.get(key)
 
 def config_ssl_context(address, context):
+    import ssl
+    versions = get_address_environ(address, "SEVENT_HELPERS_SSL_VERSIONS")
+    if versions:
+        versions = set(versions.replace(".", "_").split(","))
+        for version in ("SSLv2", "SSLv3", "TLSv1", "TLSv1_1", "TLSv1_2", "TLSv1_3"):
+            if hasattr(ssl, "OP_NO_%s" % version) and version not in versions:
+                context.options |= getattr(ssl, "OP_NO_%s" % version)
+    maximum_version = get_address_environ(address, "SEVENT_HELPERS_SSL_MAXIMUM_VERSION")
+    if maximum_version and hasattr(ssl.TLSVersion, maximum_version.replace(".", "_")):
+        context.maximum_version = getattr(ssl.TLSVersion, maximum_version.replace(".", "_"))
+    minimum_version = get_address_environ(address, "SEVENT_HELPERS_SSL_MINIMUM_VERSION")
+    if minimum_version and hasattr(ssl.TLSVersion, maximum_version.replace(".", "_")):
+        context.minimum_version = getattr(ssl.TLSVersion, maximum_version.replace(".", "_"))
     alpn_protocols = get_address_environ(address, "SEVENT_HELPERS_SSL_ALPN_PROTOCOLS")
     if alpn_protocols:
         context.set_alpn_protocols([alpn_protocol for alpn_protocol in alpn_protocols.split(",")])
@@ -43,6 +56,11 @@ def config_ssl_context(address, context):
     ecdh_curve = get_address_environ(address, "SEVENT_HELPERS_SSL_ECDH_CURVE")
     if ecdh_curve:
         context.set_ecdh_curve(ecdh_curve)
+    disable_ticket = get_address_environ(address, "SEVENT_HELPERS_SSL_DISABLE_TICKET")
+    if disable_ticket:
+        context.options |= ssl.OP_NO_TICKET
+    else:
+        context.options &= ~ssl.OP_NO_TICKET
 
 def create_server(address, *args, **kwargs):
     if not isinstance(address, (tuple, str)):
