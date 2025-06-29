@@ -95,6 +95,7 @@ def create_server(address, *args, **kwargs):
                 server = sevent.tcp.Server()
     server.enable_reuseaddr()
     server.listen(address, *args, **kwargs)
+    setattr(server, "address", address)
     return server
 
 def create_socket_ssl_context(address, ssl_ca_file):

@@ -122,7 +122,7 @@ async def socks5_protocol_parse(conn, buffer, allow_host_names=None, deny_host_n
         return True, host, port, data[host_len + 2:]
     return False, '', 0, None
 
-async def tcp_proxy(conns, conn, status, allow_host_names=None, deny_host_names=None):
+async def tcp_proxy(conns, server, conn, status, allow_host_names=None, deny_host_names=None):
     start_time = time.time()
     host, port, protocol = '', 0, ''
     conn.write, pconn = warp_write(conn, status, "recv_len"), None
@@ -136,13 +136,16 @@ async def tcp_proxy(conns, conn, status, allow_host_names=None, deny_host_names=
             protocol = 'http'
             is_allowed, host, port, data = await http_protocol_parse(conn, buffer, allow_host_names, deny_host_names)
         if not host or not port:
-            logging.info("empty address", protocol, host, port)
+            logging.info("connected %s:%s -> %s:%s empty address",
+                         conn.address[0], conn.address[1], server.address[0], server.address[1])
             return
         if not is_allowed:
-            logging.info("connecting %s %s:%d not allow address", protocol, host, port)
+            logging.info("connected %s %s:%s -> %s:%s -> %s:%d not allow", protocol,
+                         conn.address[0], conn.address[1], server.address[0], server.address[1], host, port)
             return
 
-        logging.info("connected %s %s:%d", protocol, host, port)
+        logging.info("connected %s %s:%s -> %s:%s -> %s:%d", protocol,
+                     conn.address[0], conn.address[1], server.address[0], server.address[1], host, port)
         pconn = create_socket((host, port))
         pconn.write = warp_write(pconn, status, "send_len")
         await pconn.connectof((host, port))
@@ -152,7 +155,8 @@ async def tcp_proxy(conns, conn, status, allow_host_names=None, deny_host_names=
     except sevent.errors.SocketClosed:
         pass
     except Exception as e:
-        logging.info("error %s %s:%d %s %.2fms\r%s", protocol, host, port, e,
+        logging.info("error %s %s:%s -> %s:%s -> %s:%d %s %.2fms\r%s", protocol,
+                     conn.address[0], conn.address[1], server.address[0], server.address[1], host, port, e,
                      (time.time() - start_time) * 1000, traceback.format_exc())
         return
     finally:
@@ -160,7 +164,8 @@ async def tcp_proxy(conns, conn, status, allow_host_names=None, deny_host_names=
         if pconn: pconn.close()
         conns.pop(id(conn), None)
 
-    logging.info("closed %s %s:%d %s %s %.2fms", protocol, host, port, format_data_len(status["send_len"]),
+    logging.info("closed %s %s:%s -> %s:%s -> %s:%d %s %s %.2fms", protocol,
+                 conn.address[0], conn.address[1], server.address[0], server.address[1], host, port, format_data_len(status["send_len"]),
                  format_data_len(status["recv_len"]), (time.time() - start_time) * 1000)
 
 async def check_timeout(conns, timeout):
@@ -193,7 +198,7 @@ async def tcp_accept(server, timeout, allow_host_names=None, deny_host_names=Non
     while True:
         conn = await server.accept()
         status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
-        sevent.current().call_async(tcp_proxy, conns, conn, status, allow_host_names, deny_host_names)
+        sevent.current().call_async(tcp_proxy, conns, server, conn, status, allow_host_names, deny_host_names)
         conns[id(conn)] = (conn, status)
 
 def main(argv):
