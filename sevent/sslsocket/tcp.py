@@ -180,14 +180,14 @@ class SSLSocket(WarpSocket):
             if last_data_len < self._rbuffers._len:
                 if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                     self._rbuffers.do_drain()
-                self._loop.add_async(self.emit_data, self, self._rbuffers)
+                self.emit_data(self, self._rbuffers)
         except Exception as e:
             self._shutdowned = True
             self._loop.add_async(self._error, SSLSocketError(str(e)))
 
     def write(self, data):
         if self._state == STATE_CLOSED:
-            return False
+            raise SocketClosed()
         try:
             if not self._handshaked:
                 if data.__class__ is Buffer:
