@@ -206,9 +206,7 @@ class SSLSocket(WarpSocket):
                 n = self._ssl_bio.write(data)
                 if n <= 0 and data:
                     if not self._outgoing.pending:
-                        self._shutdowned = True
-                        self._loop.add_async(self._error, SSLSocketError("outgoing write return zero"))
-                        return
+                        raise SSLSocketError("outgoing write return zero")
                     self.flush()
             except (ssl.SSLWantWriteError, ssl.SSLWantReadError):
                 if self._outgoing.pending:
@@ -220,23 +218,21 @@ class SSLSocket(WarpSocket):
                     nn = self._ssl_bio.write(data[n:])
                     if nn <= 0:
                         if not self._outgoing.pending:
-                            self._shutdowned = True
-                            self._loop.add_async(self._error, SSLSocketError("outgoing write return zero"))
-                            return
+                            raise SSLSocketError("outgoing write return zero")
                         self.flush()
                         continue
                     n += nn
                 except (ssl.SSLWantWriteError, ssl.SSLWantReadError):
                     if self._outgoing.pending:
                         self.flush()
-        except (ssl.SSLZeroReturnError, ssl.SSLEOFError):
+        except (ssl.SSLZeroReturnError, ssl.SSLEOFError) as e:
             self._shutdowned = True
             self._loop.add_async(self.close)
-            return
+            raise e
         except Exception as e:
             self._shutdowned = True
-            self._loop.add_async(self._error, SSLSocketError(str(e)))
-            return
+            self._loop.add_async(self._error, SSLSocketError(str(e)) if not isinstance(e, SSLSocketError) else e)
+            raise e
         if self._outgoing.pending:
             return self.flush()
         return True
