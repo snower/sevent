@@ -875,6 +875,24 @@ class WarpSocket(Socket):
             self._has_on_drain_event = True
         Socket.once(self, event_name, callback)
 
+    def off(self, event_name, callback):
+        Socket.off(self, event_name, callback)
+        if event_name == "drain" and not self._has_drain_event and self._has_on_drain_event:
+            self._socket.off_drain(self._do_drain)
+            self._has_on_drain_event = False
+
+    def noce(self, event_name, callback):
+        Socket.noce(self, event_name, callback)
+        if event_name == "drain" and not self._has_drain_event and self._has_on_drain_event:
+            self._socket.off_drain(self._do_drain)
+            self._has_on_drain_event = False
+
+    def remove_listener(self, event_name, callback):
+        Socket.remove_listener(self, event_name, callback)
+        if event_name == "drain" and not self._has_drain_event and self._has_on_drain_event:
+            self._socket.off_drain(self._do_drain)
+            self._has_on_drain_event = False
+
     def end(self):
         self._socket.end()
         self._state = self._socket.state
