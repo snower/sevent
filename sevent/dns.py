@@ -220,11 +220,15 @@ class DNSResolver(EventEmitter):
             pass
 
         servers = []
-        etc_path = '/etc/resolv.conf'
-        if 'WINDIR' in os.environ:
-            etc_path = os.environ['WINDIR'] + '/system32/drivers/etc/resolv.conf'
+        etc_resolv_filename = os.environ.get("SEVENT_RESOLV_FILENAME")
+        if etc_resolv_filename is None:
+            etc_resolv_filename = '/etc/resolv.conf'
+            if 'WINDIR' in os.environ:
+                etc_resolv_filename = os.environ['WINDIR'] + '/system32/drivers/etc/resolv.conf'
+        elif not etc_resolv_filename:
+            return servers or ['8.8.4.4', '8.8.8.8', '114.114.114.114']
         try:
-            with open(etc_path, 'rb') as f:
+            with open(etc_resolv_filename, 'rb') as f:
                 content = f.readlines()
                 for line in content:
                     line = line.strip()
@@ -255,11 +259,16 @@ class DNSResolver(EventEmitter):
         return servers or ['8.8.4.4', '8.8.8.8', '114.114.114.114']
 
     def parse_hosts(self):
-        etc_path = '/etc/hosts'
-        if 'WINDIR' in os.environ:
-            etc_path = os.environ['WINDIR'] + '/system32/drivers/etc/hosts'
+        etc_hosts_filename = os.environ.get("SEVENT_HOSTS_FILENAME")
+        if etc_hosts_filename is None:
+            etc_hosts_filename = '/etc/hosts'
+            if 'WINDIR' in os.environ:
+                etc_hosts_filename = os.environ['WINDIR'] + '/system32/drivers/etc/hosts'
+        elif not etc_hosts_filename or etc_hosts_filename == "-":
+            self._hosts[b'localhost'] = '127.0.0.1'
+            return
         try:
-            with open(etc_path, 'rb') as f:
+            with open(etc_hosts_filename, 'rb') as f:
                 for line in f.readlines():
                     line = line.strip()
                     if not line or line[:1] == b'#':
