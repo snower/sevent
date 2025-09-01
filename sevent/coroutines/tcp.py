@@ -192,7 +192,7 @@ def warp_coroutine(BaseSocket, BaseServer, BaseWarpSocket, BaseWarpServer):
 
             self.on("close", do_closed)
             socket.on("close", do_closed)
-            BaseSocket.link(self, socket)
+            self.link(socket)
             return main.switch()
 
         async def join(self):

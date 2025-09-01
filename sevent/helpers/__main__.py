@@ -13,6 +13,7 @@ from . import proxy2proxy
 from . import redirect2proxy
 from . import tcp_reverse
 from . import arproxy
+from . import proxy_tunnel
 
 HEPERS = {
     "tcp_forward": tcp_forward,
@@ -22,6 +23,7 @@ HEPERS = {
     "redirect2proxy": redirect2proxy,
     "tcp_reverse": tcp_reverse,
     "arproxy": arproxy,
+    "proxy_tunnel": proxy_tunnel,
 }
 
 def show_help_message():
