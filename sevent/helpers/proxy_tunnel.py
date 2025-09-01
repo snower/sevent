@@ -221,6 +221,8 @@ class TcpTunnel(EventEmitter):
         self._recv_length = 2
         self._recv_waiting_length = True
         self._recv_timestamp = 0
+        self._ping_timestamp = time.time()
+        self._pong_timestamp = time.time()
 
     @property
     def address(self):
@@ -236,13 +238,18 @@ class TcpTunnel(EventEmitter):
         socket.on_data(self.on_data)
         socket.on_close(self.on_close)
         socket.on_drain(self.on_drain)
-        def do_ping():
+        def do_ping_timeout():
             if self._socket is not socket:
                 return
-            if time.time() - self._recv_timestamp > 30:
+            now = time.time()
+            if now - self._ping_timestamp > 15 and now - self._pong_timestamp > 120:
+                socket.close()
+                return
+            if now - self._recv_timestamp > 30:
                 self.write_frame(0, FRAME_TYPE_PING, 0, None)
-            self._loop.add_timeout(5, do_ping)
-        self._loop.add_timeout(5, do_ping)
+                self._ping_timestamp = now
+            self._loop.add_timeout(5, do_ping_timeout)
+        self._loop.add_timeout(5, do_ping_timeout)
 
     def open_stream(self):
         if self._socket is None:
@@ -321,6 +328,7 @@ class TcpTunnel(EventEmitter):
     def on_system_frame(self, frame_type, frame_flag, data):
         if frame_type == FRAME_TYPE_PING:
             self.write_frame(0, FRAME_TYPE_PONG, 0, None)
+            self._pong_timestamp = time.time()
             return
 
     def on_drain(self, socket):
