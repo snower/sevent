@@ -2,6 +2,7 @@
 # 2021/2/1
 # create by: snower
 
+import shlex
 import sys
 import multiprocessing
 import logging
@@ -45,13 +46,23 @@ if __name__ == "__main__":
         exit(0)
 
     args_helpers = []
-    for arg in sys.argv[1:]:
-        if arg and arg[0] == "@" and arg[1:] in HEPERS:
-            args_helpers.append((arg[1:], HEPERS[arg[1:]], []))
-        elif not args_helpers:
-            continue
-        else:
-            args_helpers[-1][2].append(arg)
+    if len(sys.argv) >= 2 and sys.argv[1] == "-f":
+        if len(sys.argv) >= 3:
+            with open(sys.argv[2], "r", encoding="utf-8") as fp:
+                for line in fp:
+                    args = shlex.split(line)
+                    if not args:
+                        continue
+                    if args[0] and args[0][0] == "@" and args[0][1:] in HEPERS:
+                        args_helpers.append((args[0][1:], HEPERS[args[0][1:]], args[1:]))
+    else:
+        for arg in sys.argv[1:]:
+            if arg and arg[0] == "@" and arg[1:] in HEPERS:
+                args_helpers.append((arg[1:], HEPERS[arg[1:]], []))
+            elif not args_helpers:
+                continue
+            else:
+                args_helpers[-1][2].append(arg)
 
     if not args_helpers:
         show_help_message()
