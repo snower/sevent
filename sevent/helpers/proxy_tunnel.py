@@ -255,14 +255,21 @@ class TcpTunnel(EventEmitter):
             if self._socket is not socket:
                 return
             now = time.time()
-            if now - self._ping_timestamp > 15 and now - self._pong_timestamp > 120:
+            if now - self._recv_timestamp <= 45:
+                self._ping_timestamp = self._send_timestamp
+                self._pong_timestamp = self._recv_timestamp
+                self._loop.add_timeout(15, do_ping_timeout)
+                return
+            if now - self._pong_timestamp > 120:
                 socket.close()
                 return
-            if now - self._recv_timestamp > 30:
-                self.write_frame(0, FRAME_TYPE_PING, 0, None)
-                self._ping_timestamp = now
-            self._loop.add_timeout(5, do_ping_timeout)
-        self._loop.add_timeout(5, do_ping_timeout)
+            try:
+                if now - self._ping_timestamp >= 45:
+                    self.write_frame(0, FRAME_TYPE_PING, 0, None)
+                    self._ping_timestamp = now
+            finally:
+                self._loop.add_timeout(15, do_ping_timeout)
+        self._loop.add_timeout(15, do_ping_timeout)
 
     def open_stream(self):
         if self._socket is None:
@@ -396,7 +403,7 @@ async def handler_server_conn(tunnel, conn, key):
         if conn is None or tunnel._socket is conn:
             return
         conn.close()
-    timeout_handler = sevent.current().add_timeout(5, on_timeout)
+    timeout_handler = sevent.current().add_timeout(15, on_timeout)
 
     start_time = time.time()
     try:
@@ -454,7 +461,7 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
                 if conn is None or tunnel._socket is conn:
                     return
                 conn.close()
-            timeout_handler = sevent.current().add_timeout(5, on_timeout)
+            timeout_handler = sevent.current().add_timeout(15, on_timeout)
 
             sign_key = gen_sign_key(key)
             await conn.send(struct.pack("!HHBBH", 6 + len(sign_key), 0, FRAME_TYPE_AUTH, 0, len(sign_key)) + sign_key)
