@@ -58,7 +58,7 @@ class TunnelStream(Socket):
 
     @property
     def address(self):
-        return ("tunnel[%d]" % len(self._tunnel._streams), self._stream_id)
+        return ("tunnel(%d)" % len(self._tunnel._streams), self._stream_id)
 
     @property
     def socket(self):
@@ -164,7 +164,7 @@ class TunnelStream(Socket):
     def do_on_frame(self, frame_type, frame_flag, data):
         if not data:
             return
-        self._rbuffers.write(data)
+        BaseBuffer.write(self._rbuffers, data)
         if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
             self._rbuffers.do_drain()
         self._loop.add_async(self.emit_data, self, self._rbuffers)
@@ -173,10 +173,12 @@ class TunnelStream(Socket):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
             return
         if self._wbuffers:
-            data = self._wbuffers.read(FRAME_MAX_SIZE) if len(self._wbuffers) > FRAME_MAX_SIZE else self._wbuffers.read()
+            data = BaseBuffer.read(self._wbuffers, FRAME_MAX_SIZE) if len(self._wbuffers) > FRAME_MAX_SIZE else BaseBuffer.read(self._wbuffers)
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DATA, 0, data)
             if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
                 self._wbuffers.do_regain()
+            if not self._wbuffers and self._has_drain_event:
+                self._loop.add_async(self.emit_drain, self)
         else:
             self._writing = False
             if self._state == STATE_CLOSING:
@@ -196,8 +198,9 @@ class TunnelStream(Socket):
         if not self._writing:
             if not self._wbuffers:
                 return True
-            data = self._wbuffers.read(FRAME_MAX_SIZE) if len(self._wbuffers) > FRAME_MAX_SIZE else self._wbuffers.read()
+            data = BaseBuffer.read(self._wbuffers, FRAME_MAX_SIZE) if len(self._wbuffers) > FRAME_MAX_SIZE else BaseBuffer.read(self._wbuffers)
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DATA, 0, data)
+            self._writing = True
             if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
                 self._wbuffers.do_regain()
             if not self._wbuffers:
@@ -269,7 +272,7 @@ class TcpTunnel(EventEmitter):
 
     def write_frame(self, stream_id, frame_type, frame_flag, data):
         if self._socket is None:
-            return
+            raise SocketClosed()
         if self._send_queue:
             self._send_queue.append((stream_id, frame_type, frame_flag, data))
         else:
@@ -324,6 +327,10 @@ class TcpTunnel(EventEmitter):
         if frame_type == FRAME_TYPE_CLOSING:
             stream.do_end()
             return
+        if frame_type == FRAME_TYPE_OPEN:
+            self.write_frame(stream_id, FRAME_TYPE_RESET, 0, None)
+            stream.do_close()
+            self.close_stream(stream)
 
     def on_system_frame(self, frame_type, frame_flag, data):
         if frame_type == FRAME_TYPE_PING:
@@ -363,10 +370,10 @@ def check_sign_key(key, sign_key):
 
 async def handler_server_conn(tunnel, conn, key):
     def on_timeout():
-        if tunnel._socket is conn:
+        if conn is None or tunnel._socket is conn:
             return
         conn.close()
-    sevent.current().add_timeout(5, on_timeout)
+    timeout_handler = sevent.current().add_timeout(5, on_timeout)
 
     start_time = time.time()
     try:
@@ -375,14 +382,21 @@ async def handler_server_conn(tunnel, conn, key):
         _, frame_type, frame_flag, sign_key_length = struct.unpack(">HBBH", data[:6])
         sign_key = data[6:6 + sign_key_length]
         if not check_sign_key(key, sign_key):
+            await conn.send(struct.pack(">HHBBB", 5, 0, FRAME_TYPE_AUTHED, 0, 1))
             await conn.closeof()
+            sevent.current().cancel_timeout(timeout_handler)
             logging.info("remote conn auth fail %s:%d %s", conn.address[0], conn.address[1], sign_key)
             return
+
         if tunnel._socket is not None:
+            await conn.send(struct.pack(">HHBBB", 5, 0, FRAME_TYPE_AUTHED, 0, 2))
             await conn.closeof()
+            sevent.current().cancel_timeout(timeout_handler)
             logging.info("remote conn auth fail %s:%d %s", conn.address[0], conn.address[1], sign_key)
             return
+
         await conn.send(struct.pack(">HHBBB", 5, 0, FRAME_TYPE_AUTHED, 0, 0))
+        sevent.current().cancel_timeout(timeout_handler)
         tunnel.update_socket(conn)
         logging.info("remote conn succeed %s:%d", conn.address[0], conn.address[1])
         await conn.join()
@@ -392,6 +406,9 @@ async def handler_server_conn(tunnel, conn, key):
         logging.info("remote conn error %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1],
                      e, (time.time() - start_time) * 1000, traceback.format_exc())
         return
+    finally:
+        if conn is not None:
+            conn.close()
     logging.info("remote conn closed %s:%d %.2fms", conn.address[0], conn.address[1], (time.time() - start_time) * 1000)
 
 async def run_tunnel_server(tunnel, listen_host, listen_port, key):
@@ -404,6 +421,13 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
     while True:
         start_time = time.time()
         is_connected, conn = False, None
+
+        def on_timeout():
+            if conn is None or tunnel._socket is conn:
+                return
+            conn.close()
+        timeout_handler = sevent.current().add_timeout(5, on_timeout)
+
         try:
             conn = create_socket((connect_host, connect_port))
             await conn.connectof((connect_host, connect_port))
@@ -411,11 +435,13 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
             await conn.send(struct.pack("!HHBBH", 6 + len(sign_key), 0, FRAME_TYPE_AUTH, 0, len(sign_key)) + sign_key)
             data_length, = struct.unpack(">H", (await conn.recv(2)).read(2))
             data = (await conn.recv(data_length)).read(data_length)
-            _, frame_type, frame_flag, auth_result = struct.unpack(">HBBB", data[:5])
-            if auth_result != 0:
+            _, frame_type, frame_flag, connect_result = struct.unpack(">HBBB", data[:5])
+            if connect_result != 0:
                 await conn.closeof()
-                logging.info("local conn auth fail %s:%d", connect_host, connect_port)
+                sevent.current().cancel_timeout(timeout_handler)
+                logging.info("local conn fail %s:%d %d", connect_host, connect_port, connect_result)
             else:
+                sevent.current().cancel_timeout(timeout_handler)
                 tunnel.update_socket(conn)
                 is_connected = True
                 logging.info("local conn succeed %s:%d -> %s:%d", conn.address[0], conn.address[1], connect_host, connect_port)
@@ -427,6 +453,9 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
                          e, (time.time() - start_time) * 1000, traceback.format_exc())
             await sevent.sleep(3 if is_connected else 0.1)
             continue
+        finally:
+            if conn is not None:
+                conn.close()
         logging.info("local conn closed %s:%d -> %s:%d %.2fms", conn.address[0], conn.address[1], connect_host,
                      connect_port, (time.time() - start_time) * 1000)
         await sevent.sleep(3 if is_connected else 0.1)
