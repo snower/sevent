@@ -156,10 +156,12 @@ class TunnelStream(Socket):
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None)
 
     def do_on_drain(self):
-        self._wbuffers._do_drain()
+        if self._state == STATE_STREAMING:
+            self._wbuffers._do_drain()
 
     def do_on_regain(self):
-        self._wbuffers._do_regain()
+        if self._state == STATE_STREAMING:
+            self._wbuffers._do_regain()
 
     def do_on_frame(self, frame_type, frame_flag, data):
         if not data:
