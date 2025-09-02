@@ -488,9 +488,9 @@ async def handle_proxy_local(conns, tunnel, conn, status):
     try:
         pconn = tunnel.open_stream()
         pconn.write = warp_write(pconn, status, "send_len")
-        await conn.linkof(pconn)
         logging.info("connected %s:%s -> %s:%s -> %s:%s", conn.address[0], conn.address[1], tunnel.address[0], tunnel.address[1],
                      pconn.address[0], pconn.address[1])
+        await conn.linkof(pconn)
     except sevent.errors.SocketClosed:
         pass
     except Exception as e:
