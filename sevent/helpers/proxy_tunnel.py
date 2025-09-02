@@ -450,25 +450,24 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
             if connect_result != 0:
                 await conn.closeof()
                 sevent.current().cancel_timeout(timeout_handler)
-                logging.info("local conn fail %s:%d %d", connect_host, connect_port, connect_result)
+                logging.info("local conn fail -> %s:%d %d", connect_host, connect_port, connect_result)
             else:
                 sevent.current().cancel_timeout(timeout_handler)
                 tunnel.update_socket(conn)
                 is_connected = True
-                logging.info("local conn succeed %s:%d -> %s:%d", conn.address[0], conn.address[1], connect_host, connect_port)
+                logging.info("local conn succeed -> %s:%d", connect_host, connect_port)
                 await conn.join()
         except sevent.errors.SocketClosed:
             pass
         except Exception as e:
-            logging.info("local conn error %s:%d -> %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1], connect_host, connect_port,
+            logging.info("local conn error -> %s:%d %s %.2fms\r%s", connect_host, connect_port,
                          e, (time.time() - start_time) * 1000, traceback.format_exc())
             await sevent.sleep(3 if not is_connected else 0.1)
             continue
         finally:
             if conn is not None:
                 conn.close()
-        logging.info("local conn closed %s:%d -> %s:%d %.2fms", conn.address[0], conn.address[1], connect_host,
-                     connect_port, (time.time() - start_time) * 1000)
+        logging.info("local conn closed -> %s:%d %.2fms", connect_host, connect_port, (time.time() - start_time) * 1000)
         await sevent.sleep(3 if not is_connected else 0.1)
 
 async def handle_proxy_local(conns, tunnel, conn, status):
