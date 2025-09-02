@@ -243,6 +243,8 @@ class TcpTunnel(EventEmitter):
         socket.on_data(self.on_data)
         socket.on_close(self.on_close)
         socket.on_drain(self.on_drain)
+        self._ping_timestamp = time.time()
+        self._pong_timestamp = time.time()
         def do_ping_timeout():
             if self._socket is not socket:
                 return
@@ -262,6 +264,8 @@ class TcpTunnel(EventEmitter):
         while True:
             stream_id = self._current_id_index
             self._current_id_index += 2
+            if self._current_id_index > 0xffff:
+                self._current_id_index = 1 if self._is_server else 2
             if stream_id not in self._streams:
                 break
         stream = TunnelStream(self._loop, stream_id, self)
@@ -426,16 +430,16 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
     while True:
         start_time = time.time()
         is_connected, conn = False, None
-
-        def on_timeout():
-            if conn is None or tunnel._socket is conn:
-                return
-            conn.close()
-        timeout_handler = sevent.current().add_timeout(5, on_timeout)
-
         try:
             conn = create_socket((connect_host, connect_port))
             await conn.connectof((connect_host, connect_port))
+
+            def on_timeout():
+                if conn is None or tunnel._socket is conn:
+                    return
+                conn.close()
+            timeout_handler = sevent.current().add_timeout(5, on_timeout)
+
             sign_key = gen_sign_key(key)
             await conn.send(struct.pack("!HHBBH", 6 + len(sign_key), 0, FRAME_TYPE_AUTH, 0, len(sign_key)) + sign_key)
             data_length, = struct.unpack(">H", (await conn.recv(2)).read(2))
