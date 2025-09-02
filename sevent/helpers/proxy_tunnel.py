@@ -45,7 +45,7 @@ class TunnelStream(Socket):
         self._loop = loop or instance()
         self._stream_id = stream_id
         self._tunnel = tunnel
-        self._max_buffer_size = max_buffer_size or sevent.tcp.Socket.MAX_BUFFER_SIZE
+        self._max_buffer_size = max_buffer_size or Socket.MAX_BUFFER_SIZE
         self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._state = STATE_STREAMING
@@ -148,11 +148,11 @@ class TunnelStream(Socket):
             get_logger().error("TcpTunnelStream %s socket %s error: %s", self, self.socket, error)
 
     def drain(self):
-        if self._state in (STATE_STREAMING, STATE_CLOSING):
+        if self._state == STATE_STREAMING:
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DRAIN, 0, None)
 
     def regain(self):
-        if self._state in (STATE_STREAMING, STATE_CLOSING):
+        if self._state == STATE_STREAMING:
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None)
 
     def do_on_drain(self):
@@ -220,6 +220,7 @@ class TcpTunnel(EventEmitter):
         self._streams = {}
         self._current_id_index = 1 if is_server else 2
         self._send_queue = deque()
+        self._send_waiting_drain = False
         self._send_timestamp = 0
         self._recv_length = 2
         self._recv_waiting_length = True
@@ -236,6 +237,7 @@ class TcpTunnel(EventEmitter):
     def update_socket(self, socket):
         self._socket = socket
         self._send_queue.clear()
+        self._send_waiting_drain = False
         self._recv_length = 2
         self._recv_waiting_length = True
         socket.on_data(self.on_data)
@@ -273,13 +275,14 @@ class TcpTunnel(EventEmitter):
     def write_frame(self, stream_id, frame_type, frame_flag, data):
         if self._socket is None:
             raise SocketClosed()
-        if self._send_queue:
+        if self._send_waiting_drain:
             self._send_queue.append((stream_id, frame_type, frame_flag, data))
         else:
             if data is not None:
                 self._socket.write(struct.pack(">HHBB", len(data) + 4, stream_id, frame_type, frame_flag) + data)
             else:
                 self._socket.write(struct.pack(">HHBB", 4, stream_id, frame_type, frame_flag))
+            self._send_waiting_drain = True
             self._send_timestamp = time.time()
             stream = self._streams.get(stream_id)
             if stream is not None:
@@ -340,6 +343,7 @@ class TcpTunnel(EventEmitter):
 
     def on_drain(self, socket):
         if not self._send_queue:
+            self._send_waiting_drain = False
             return
         stream_id, frame_type, frame_flag, data = self._send_queue.popleft()
         if data is not None:
@@ -357,6 +361,7 @@ class TcpTunnel(EventEmitter):
             stream.do_close()
         self._streams.clear()
         self._send_queue.clear()
+        self._send_waiting_drain = False
         self._recv_length = 2
         self._recv_waiting_length = True
 
