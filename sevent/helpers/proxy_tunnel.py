@@ -472,16 +472,15 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
                 logging.info("local conn succeed -> %s:%d", connect_host, connect_port)
                 await conn.join()
         except sevent.errors.SocketClosed:
-            pass
+            logging.info("local conn closed -> %s:%d %.2fms", connect_host, connect_port, (time.time() - start_time) * 1000)
         except Exception as e:
             logging.info("local conn error -> %s:%d %s %.2fms\r%s", connect_host, connect_port,
                          e, (time.time() - start_time) * 1000, traceback.format_exc())
-            await sevent.sleep(3 if not is_connected else 0.1)
-            continue
+        else:
+            logging.info("local conn closed -> %s:%d %.2fms", connect_host, connect_port, (time.time() - start_time) * 1000)
         finally:
             if conn is not None:
                 conn.close()
-        logging.info("local conn closed -> %s:%d %.2fms", connect_host, connect_port, (time.time() - start_time) * 1000)
         await sevent.sleep(3 if not is_connected else 0.1)
 
 async def handle_proxy_local(conns, tunnel, conn, status):
