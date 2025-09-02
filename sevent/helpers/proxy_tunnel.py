@@ -258,7 +258,7 @@ class TcpTunnel(EventEmitter):
             if now - self._recv_timestamp <= 45:
                 self._ping_timestamp = self._send_timestamp
                 self._pong_timestamp = self._recv_timestamp
-                self._loop.add_timeout(15, do_ping_timeout)
+                self._loop.add_timeout(20 if self._is_server else 15, do_ping_timeout)
                 return
             if now - self._pong_timestamp > 120:
                 socket.close()
@@ -268,8 +268,8 @@ class TcpTunnel(EventEmitter):
                     self.write_frame(0, FRAME_TYPE_PING, 0, None)
                     self._ping_timestamp = now
             finally:
-                self._loop.add_timeout(15, do_ping_timeout)
-        self._loop.add_timeout(15, do_ping_timeout)
+                self._loop.add_timeout(20 if self._is_server else 15, do_ping_timeout)
+        self._loop.add_timeout(20 if self._is_server else 15, do_ping_timeout)
 
     def open_stream(self):
         if self._socket is None:
