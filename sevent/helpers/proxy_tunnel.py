@@ -386,6 +386,7 @@ async def handler_server_conn(tunnel, conn, key):
 
     start_time = time.time()
     try:
+        logging.info("remote conn connecting %s:%d", conn.address[0], conn.address[1])
         data_length, = struct.unpack(">H", (await conn.recv(2)).read(2))
         data = (await conn.recv(data_length)).read(data_length)
         _, frame_type, frame_flag, sign_key_length = struct.unpack(">HBBH", data[:6])
@@ -431,6 +432,7 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
         start_time = time.time()
         is_connected, conn = False, None
         try:
+            logging.info("local conn connecting -> %s:%d", connect_host, connect_port)
             conn = create_socket((connect_host, connect_port))
             await conn.connectof((connect_host, connect_port))
 
@@ -460,14 +462,14 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
         except Exception as e:
             logging.info("local conn error %s:%d -> %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1], connect_host, connect_port,
                          e, (time.time() - start_time) * 1000, traceback.format_exc())
-            await sevent.sleep(3 if is_connected else 0.1)
+            await sevent.sleep(3 if not is_connected else 0.1)
             continue
         finally:
             if conn is not None:
                 conn.close()
         logging.info("local conn closed %s:%d -> %s:%d %.2fms", conn.address[0], conn.address[1], connect_host,
                      connect_port, (time.time() - start_time) * 1000)
-        await sevent.sleep(3 if is_connected else 0.1)
+        await sevent.sleep(3 if not is_connected else 0.1)
 
 async def handle_proxy_local(conns, tunnel, conn, status):
     start_time = time.time()
