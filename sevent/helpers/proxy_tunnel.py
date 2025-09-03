@@ -91,54 +91,47 @@ class TunnelStream(Socket):
         if self._state == STATE_CLOSED:
             return
         self._state = STATE_CLOSED
-
-        def on_close():
+        if not self._frame_closing:
+            self._wbuffers.read()
             try:
-                if self._frame_closing:
-                    self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSED, 0, None)
-                    self._tunnel.close_stream(self)
-                else:
-                    self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSING, 0, None)
+                self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSING, 0, None)
             except Exception as e:
-                get_logger().exception("TcpTunnelStream write closeing frame error:%s", e)
+                get_logger().exception("write closing frame error:%s", e)
+        else:
+            self._wbuffers.read()
             try:
-                self.emit_close(self)
+                self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSED, 0, None)
             except Exception as e:
-                get_logger().exception("TcpTunnelStream emit close error:%s", e)
-            self.remove_all_listeners()
-            self._rbuffers.close()
-            self._wbuffers.close()
-            self._rbuffers = None
-            self._wbuffers = None
-        self._loop.add_async(on_close)
+                get_logger().exception("write closed frame error:%s", e)
+            self.do_close()
 
     def do_end(self):
+        self._frame_closing = True
         if self._state != STATE_STREAMING:
-            self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSED, 0, None)
-            self._tunnel.close_stream(self)
             return
         if self._wbuffers:
             self._state = STATE_CLOSING
-            self._frame_closing = True
             if self._recv_drain_waiting_regain:
                 self._recv_drain_waiting_regain = False
                 if not self._writing and self._wbuffers:
                     self.do_write_drain()
         else:
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSED, 0, None)
-            self._tunnel.close_stream(self)
-            self._loop.add_async(self.do_close)
+            self.do_close()
 
     def do_close(self):
-        if self._state == STATE_CLOSED:
+        if self._rbuffers is None or self._wbuffers is None:
             return
         self._state = STATE_CLOSED
 
         def on_close():
+            if self._rbuffers is None or self._wbuffers is None:
+                return
+            self._tunnel.close_stream(self)
             try:
                 self.emit_close(self)
             except Exception as e:
-                get_logger().exception("TcpTunnelStream emit close error:%s", e)
+                get_logger().exception("emit close error:%s", e)
             self.remove_all_listeners()
             self._rbuffers.close()
             self._wbuffers.close()
@@ -153,11 +146,11 @@ class TunnelStream(Socket):
             get_logger().error("TcpTunnelStream %s socket %s error: %s", self, self.socket, error)
 
     def drain(self):
-        if self._state == STATE_STREAMING:
+        if self._state in (STATE_STREAMING, STATE_CLOSING):
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DRAIN, 0, None)
 
     def regain(self):
-        if self._state == STATE_STREAMING:
+        if self._state in (STATE_STREAMING, STATE_CLOSING):
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None)
 
     def do_on_drain(self):
