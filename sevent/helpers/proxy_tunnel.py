@@ -157,11 +157,11 @@ class TunnelStream(Socket):
 
     def do_on_drain(self):
         if self._state == STATE_STREAMING:
-            self._wbuffers._do_drain()
+            self._wbuffers.do_drain()
 
     def do_on_regain(self):
         if self._state == STATE_STREAMING:
-            self._wbuffers._do_regain()
+            self._wbuffers.do_regain()
 
     def do_on_frame(self, frame_type, frame_flag, data):
         if not data:
@@ -324,6 +324,8 @@ class TcpTunnel(EventEmitter):
 
     def on_frame(self, stream_id, frame_type, frame_flag, data):
         if stream_id not in self._streams:
+            if self._socket is None:
+                return
             if frame_type == FRAME_TYPE_OPEN:
                 stream = TunnelStream(self._loop, stream_id, self)
                 self._streams[stream_id] = stream
@@ -529,11 +531,11 @@ def handle_proxy_remote_stream(conns, tunnel, stream, allow_host_names, deny_hos
     conns[id(stream)] = (stream, status)
 
 def main(argv):
-    parser = argparse.ArgumentParser(description='simple http and socks5 proxy server')
+    parser = argparse.ArgumentParser(description='Simple bidirectional http and socks5 proxy based on TCP tunnel')
     parser.add_argument('-c', dest='is_client_mode', nargs='?', const=True, default=False, type=bool, help='is client mode (defualt: False)')
     parser.add_argument('-k', dest='key', default='', type=str, help='auth key (defualt: "")')
-    parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
-    parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
+    parser.add_argument('-b', dest='bind', default="0.0.0.0", help='proxy bind host (default: 0.0.0.0)')
+    parser.add_argument('-p', dest='port', default=8088, type=int, help='proxy bind port (default: 8088)')
     parser.add_argument('-r', dest='listen_host', default="0.0.0.0", help='server mode reverse server listen host (default: 0.0.0.0)')
     parser.add_argument('-l', dest='listen_port', default=8078, type=int, help='server mode reverse server listen port (default: 8088)')
     parser.add_argument('-H', dest='connect_host', default="127.0.0.1", help='client mode reverse client connect server host (default: 127.0.0.1)')
