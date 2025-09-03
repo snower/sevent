@@ -10,6 +10,7 @@ import struct
 import sys
 import time
 import traceback
+import weakref
 from collections import deque
 
 import sevent
@@ -58,8 +59,12 @@ class TunnelStream(Socket):
         self._recv_drain_waiting_regain = False
 
     @property
+    def stream_id(self):
+        return self._stream_id
+
+    @property
     def address(self):
-        return ("tunnel(%d)" % len(self._tunnel._streams), self._stream_id)
+        return "tunnel#%d" % id(self._tunnel), self._stream_id
 
     @property
     def socket(self):
@@ -222,6 +227,14 @@ class TunnelStream(Socket):
 
 
 class TcpTunnel(EventEmitter):
+    _tunnels = weakref.WeakValueDictionary()
+
+    @classmethod
+    def get_tunnel(cls, tunnel_id):
+        if isinstance(tunnel_id, str) and tunnel_id.startswith("tunnel#"):
+            tunnel_id = int(tunnel_id[7:])
+        return cls._tunnels.get(tunnel_id)
+
     def __init__(self, loop=None, is_server=False):
         super(TcpTunnel, self).__init__()
 
@@ -238,11 +251,20 @@ class TcpTunnel(EventEmitter):
         self._recv_timestamp = 0
         self._ping_timestamp = time.time()
         self._pong_timestamp = time.time()
+        self._tunnels[id(self)] = self
+
+    @property
+    def streams(self):
+        return self._streams
+
+    @property
+    def streams_count(self):
+        return len(self._streams)
 
     @property
     def address(self):
         if self._socket is None:
-            return (None, None)
+            return "", 0
         return self._socket.address
 
     def update_socket(self, socket):
@@ -292,7 +314,9 @@ class TcpTunnel(EventEmitter):
         return stream
 
     def close_stream(self, stream):
-        self._streams.pop(stream._stream_id, None)
+        if stream.stream_id not in self._streams:
+            return
+        self._streams.pop(stream.stream_id, None)
 
     def write_frame(self, stream_id, frame_type, frame_flag, data):
         if self._socket is None:
@@ -396,6 +420,12 @@ class TcpTunnel(EventEmitter):
         self._recv_waiting_length = True
         for stream in streams:
             stream.do_close()
+
+    def close(self):
+        if self._socket:
+            self._socket.close()
+        if id(self) in self._tunnels:
+            self._tunnels.pop(id(self), None)
 
 def gen_sign_key(key):
     t = struct.pack("I", int(time.time()))
@@ -502,10 +532,14 @@ async def handle_proxy_local(conns, tunnel, conn, status):
     conn.write, pconn = warp_write(conn, status, "recv_len"), None
     try:
         pconn = tunnel.open_stream()
-        pconn.write = warp_write(pconn, status, "send_len")
-        logging.info("connected %s:%s -> %s:%s -> %s:%s", conn.address[0], conn.address[1], tunnel.address[0], tunnel.address[1],
-                     pconn.address[0], pconn.address[1])
-        await conn.linkof(pconn)
+        logging.info("tunnel#%d streams %d open stream %d", id(tunnel), tunnel.streams_count, pconn.stream_id)
+        try:
+            pconn.write = warp_write(pconn, status, "send_len")
+            logging.info("connected %s:%s -> %s:%s -> %s:%s", conn.address[0], conn.address[1], tunnel.address[0], tunnel.address[1],
+                         pconn.address[0], pconn.address[1])
+            await conn.linkof(pconn)
+        finally:
+            logging.info("tunnel#%d streams %d close stream %d", id(tunnel), tunnel.streams_count, pconn.stream_id)
     except sevent.errors.SocketClosed:
         pass
     except Exception as e:
@@ -530,9 +564,16 @@ async def run_proxy_local_server(conns, tunnel, bind_host, bind_port):
         sevent.current().call_async(handle_proxy_local, conns, tunnel, conn, status)
         conns[id(conn)] = (conn, status)
 
+async def handle_proxy_remote_proxy(conns, tunnel, stream, status, allow_host_names, deny_host_names):
+    logging.info("tunnel#%d streams %d open stream %d", id(tunnel), tunnel.streams_count, stream.stream_id)
+    try:
+        await tcp_proxy(conns, tunnel, stream, status, allow_host_names, deny_host_names)
+    finally:
+        logging.info("tunnel#%d streams %d close stream %d", id(tunnel), tunnel.streams_count, stream.stream_id)
+
 def handle_proxy_remote_stream(conns, tunnel, stream, allow_host_names, deny_host_names):
     status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
-    sevent.current().call_async(tcp_proxy, conns, tunnel, stream, status, allow_host_names, deny_host_names)
+    sevent.current().call_async(handle_proxy_remote_proxy, conns, tunnel, stream, status, allow_host_names, deny_host_names)
     conns[id(stream)] = (stream, status)
 
 def main(argv):
