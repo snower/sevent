@@ -97,6 +97,7 @@ class TunnelStream(Socket):
                 self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSING, 0, None)
             except Exception as e:
                 get_logger().exception("write closing frame error:%s", e)
+                self.do_close()
         else:
             self._wbuffers.read()
             try:
