@@ -55,6 +55,7 @@ class TunnelStream(Socket):
         self._writing = False
         self.ignore_write_closed_error = False
         self._frame_closing = False
+        self._recv_drain_waiting_regain = False
 
     @property
     def address(self):
@@ -157,14 +158,29 @@ class TunnelStream(Socket):
 
     def do_on_drain(self):
         if self._state == STATE_STREAMING:
+            self._recv_drain_waiting_regain = True
             self._wbuffers.do_drain()
 
     def do_on_regain(self):
+        self._recv_drain_waiting_regain = False
         if self._state == STATE_STREAMING:
-            self._wbuffers.do_regain()
+            if not self._writing and self._wbuffers:
+                try:
+                    data = BaseBuffer.read(self._wbuffers, FRAME_MAX_SIZE) if len(self._wbuffers) > FRAME_MAX_SIZE else BaseBuffer.read(self._wbuffers)
+                    self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DATA, 0, data)
+                    self._writing = True
+                    if self._wbuffers._full and self._wbuffers._len < self._wbuffers._regain_size:
+                        self._wbuffers.do_regain()
+                    if not self._wbuffers and self._has_drain_event:
+                        self._loop.add_async(self.emit_drain, self)
+                except Exception as e:
+                    self._writing = False
+                    self._error(e)
+            else:
+                self._wbuffers.do_regain()
 
     def do_on_frame(self, frame_type, frame_flag, data):
-        if not data:
+        if not data or self._rbuffers is None:
             return
         BaseBuffer.write(self._rbuffers, data)
         if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
@@ -174,7 +190,7 @@ class TunnelStream(Socket):
     def do_write_drain(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
             return
-        if self._wbuffers:
+        if not self._recv_drain_waiting_regain and self._wbuffers:
             try:
                 data = BaseBuffer.read(self._wbuffers, FRAME_MAX_SIZE) if len(self._wbuffers) > FRAME_MAX_SIZE else BaseBuffer.read(self._wbuffers)
                 self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DATA, 0, data)
@@ -201,7 +217,7 @@ class TunnelStream(Socket):
             BaseBuffer.write(self._wbuffers, data)
         if self._wbuffers._len > self._wbuffers._drain_size and not self._wbuffers._full:
             self._wbuffers.do_drain()
-        if not self._writing:
+        if not self._writing and not self._recv_drain_waiting_regain:
             if not self._wbuffers:
                 return True
             data = BaseBuffer.read(self._wbuffers, FRAME_MAX_SIZE) if len(self._wbuffers) > FRAME_MAX_SIZE else BaseBuffer.read(self._wbuffers)
