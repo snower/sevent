@@ -37,6 +37,10 @@ class PipeSocket(EventEmitter):
         self._reading = True
         self.ignore_write_closed_error = False
 
+        if self._state == STATE_STREAMING:
+            self._rbuffers.on("drain", lambda _: self.drain())
+            self._rbuffers.on("regain", lambda _: self.regain())
+
     @property
     def address(self):
         return self._address
