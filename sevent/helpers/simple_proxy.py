@@ -91,7 +91,7 @@ async def http_protocol_parse(conn, buffer, allow_host_names=None, deny_host_nam
 async def socks5_protocol_parse(conn, buffer, allow_host_names=None, deny_host_names=None):
     data = buffer.read()
     if len(data) < 8 or data[:3] != b"\x05\x01\x8e":
-        protocol = "socks5"
+        is_socks5s, protocol = False, "socks5"
         if len(data) < 3 or data[0] != 5 or data[1] <= 0 or b'\x00' not in data[2:2 + data[1]]:
             return False, protocol, '', 0, None
         await conn.send(b'\x05\x00')
@@ -100,31 +100,38 @@ async def socks5_protocol_parse(conn, buffer, allow_host_names=None, deny_host_n
         if len(data) < 5 or data[:3] != b'\x05\x01\x00':
             return False, protocol, '', 0, None
     else:
-        protocol = "socks5s"
+        is_socks5s, protocol = True, "socks5s"
+        data = data[3:]
 
     if data[3] == 1:
         host, port = socket.inet_ntoa(data[4:8]), struct.unpack('>H', data[8:10])[0]
         if not check_allow_deny_domain(allow_host_names, deny_host_names, (host, port)):
-            await conn.send(b"".join([b'\x05\x02\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
+            if not is_socks5s:
+                await conn.send(b"".join([b'\x05\x02\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
             return False, protocol, host, port, data[10:]
-        await conn.send(b"".join([b'\x05\x00\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
+        if not is_socks5s:
+            await conn.send(b"".join([b'\x05\x00\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
         return True, protocol, host, port, data[10:]
 
     if data[3] == 4:
         host, port = socket.inet_ntop(socket.AF_INET6, data[4:20]), struct.unpack('>H', data[20:22])[0]
         if not check_allow_deny_domain(allow_host_names, deny_host_names, (host, port)):
-            await conn.send(b"".join([b'\x05\x02\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
+            if not is_socks5s:
+                await conn.send(b"".join([b'\x05\x02\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
             return False, protocol, host, port, data[22:]
-        await conn.send(b"".join([b'\x05\x00\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
+        if not is_socks5s:
+            await conn.send(b"".join([b'\x05\x00\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
         return True, protocol, host, port, data[22:]
 
     elif data[3] == 3:
         host_len = data[4] + 5
         host, port = data[5: host_len].decode("utf-8"), struct.unpack('>H', data[host_len: host_len+2])[0]
         if not check_allow_deny_domain(allow_host_names, deny_host_names, (host, port)):
-            await conn.send(b"".join([b'\x05\x02\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
+            if not is_socks5s:
+                await conn.send(b"".join([b'\x05\x02\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
             return False, protocol, host, port, data[host_len + 2:]
-        await conn.send(b"".join([b'\x05\x00\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
+        if not is_socks5s:
+            await conn.send(b"".join([b'\x05\x00\x00\x01', socket.inet_aton('0.0.0.0'), struct.pack(">H", 0)]))
         return True, protocol, host, port, data[host_len + 2:]
     return False, protocol, '', 0, None
 
