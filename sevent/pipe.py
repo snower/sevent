@@ -34,7 +34,6 @@ class PipeSocket(EventEmitter):
         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._state = STATE_STREAMING if socket else STATE_INITIALIZED
         self._has_drain_event = False
-        self._reading = True
         self.ignore_write_closed_error = False
 
         if self._state == STATE_STREAMING:
@@ -231,23 +230,11 @@ class PipeSocket(EventEmitter):
 
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
-            self._reading = False
             self._socket._wbuffers.do_drain()
 
     def regain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
-            self._reading = True
-
-            BaseBuffer.extend(self._rbuffers, self._socket._wbuffers)
-            if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
-                self._rbuffers.do_drain()
-            self._loop.add_async(self.emit_data, self, self._rbuffers)
-            if self._socket._wbuffers._full and self._socket._wbuffers._len < self._socket._wbuffers._regain_size:
-                self._socket._wbuffers.do_regain()
-            if self._socket._has_drain_event:
-                self._loop.add_async(self._socket.emit_drain, self._socket)
-            if self._socket._state == STATE_CLOSING:
-                self._socket.close()
+            self._socket._wbuffers.do_regain()
 
     def write(self, data):
         if self._state != STATE_STREAMING:
@@ -255,25 +242,18 @@ class PipeSocket(EventEmitter):
                 return False
             raise SocketClosed()
 
-        if self._socket._reading:
-            if data.__class__ is Buffer:
-                BaseBuffer.extend(self._socket._rbuffers, data)
-            else:
-                BaseBuffer.write(self._socket._rbuffers, data)
-            if self._socket._rbuffers._len > self._socket._rbuffers._drain_size and not self._socket._rbuffers._full:
-                self._socket._rbuffers.do_drain()
-            self._loop.add_async(self._socket.emit_data, self._socket, self._socket._rbuffers)
-            if self._has_drain_event:
-                self._loop.add_async(self.emit_drain, self)
-            return True
-
         if data.__class__ is Buffer:
-            BaseBuffer.extend(self._wbuffers, data)
+            BaseBuffer.extend(self._socket._rbuffers, data)
+            if data._full and data._len < data._regain_size:
+                data.do_regain()
         else:
-            BaseBuffer.write(self._wbuffers, data)
-        if self._wbuffers._len > self._wbuffers._drain_size and not self._wbuffers._full:
-            self._wbuffers.do_drain()
-        return False
+            BaseBuffer.write(self._socket._rbuffers, data)
+        if self._socket._rbuffers._len > self._socket._rbuffers._drain_size and not self._socket._rbuffers._full:
+            self._socket._rbuffers.do_drain()
+        self._loop.add_async(self._socket.emit_data, self._socket, self._socket._rbuffers)
+        if self._has_drain_event:
+            self._loop.add_async(self.emit_drain, self)
+        return True
 
     def link(self, socket):
         if self._state not in (STATE_STREAMING, STATE_CONNECTING):

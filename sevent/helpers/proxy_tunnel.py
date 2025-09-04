@@ -220,6 +220,8 @@ class TunnelStream(Socket):
             raise SocketClosed()
         if data.__class__ is Buffer:
             BaseBuffer.extend(self._wbuffers, data)
+            if data._full and data._len < data._regain_size:
+                data.do_regain()
         else:
             BaseBuffer.write(self._wbuffers, data)
         if self._wbuffers._len > self._wbuffers._drain_size and not self._wbuffers._full:
