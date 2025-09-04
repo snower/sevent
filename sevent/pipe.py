@@ -198,6 +198,7 @@ class PipeSocket(EventEmitter):
             self._wbuffers.close()
             self._rbuffers = None
             self._wbuffers = None
+            self._socket = None
         self._loop.add_async(on_close)
         if self._socket:
             self._loop.add_async(self._socket.end)
@@ -227,6 +228,7 @@ class PipeSocket(EventEmitter):
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
             self._reading = False
+            self._socket._wbuffers.do_drain()
 
     def regain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):

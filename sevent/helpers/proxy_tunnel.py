@@ -21,7 +21,7 @@ from ..buffer import Buffer, BaseBuffer
 from ..errors import SocketClosed, ConnectError
 from ..event import EventEmitter, null_emit_callback
 from ..loop import instance
-from ..tcp import Socket, STATE_STREAMING, STATE_CLOSED, STATE_CLOSING
+from ..tcp import Socket, STATE_STREAMING, STATE_CLOSED, STATE_CLOSING, STATE_INITIALIZED
 from ..utils import get_logger
 
 FRAME_TYPE_AUTH = 0x01
@@ -49,14 +49,15 @@ class TunnelStream(Socket):
         self._max_buffer_size = max_buffer_size or Socket.MAX_BUFFER_SIZE
         self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
-        self._state = STATE_STREAMING
-        self._rbuffers.on("drain", lambda _: self.drain())
-        self._rbuffers.on("regain", lambda _: self.regain())
+        self._state = STATE_STREAMING if tunnel else STATE_INITIALIZED
         self._has_drain_event = False
         self._writing = False
         self.ignore_write_closed_error = False
         self._frame_closing = False
         self._recv_drain_waiting_regain = False
+        if self._state == STATE_STREAMING:
+            self._rbuffers.on("drain", lambda _: self.drain())
+            self._rbuffers.on("regain", lambda _: self.regain())
 
     @property
     def stream_id(self):
@@ -150,6 +151,18 @@ class TunnelStream(Socket):
         self._loop.add_async(self.close)
         if self.emit_error == null_emit_callback:
             get_logger().error("TcpTunnelStream %s socket %s error: %s", self, self.socket, error)
+
+    def connect(self, address, timeout=5):
+        if self._state != STATE_INITIALIZED:
+            return
+        tunnel = TcpTunnel.get_tunnel(address[0])
+        if not tunnel:
+            raise ConnectError(None, None)
+        self._tunnel.connect_stream(self)
+        self._state = STATE_STREAMING
+        self._rbuffers.on("drain", lambda _: self.drain())
+        self._rbuffers.on("regain", lambda _: self.regain())
+        self._loop.add_async(self.emit_connect, self)
 
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
@@ -309,6 +322,22 @@ class TcpTunnel(EventEmitter):
             if stream_id not in self._streams:
                 break
         stream = TunnelStream(self._loop, stream_id, self)
+        self._streams[stream_id] = stream
+        self.write_frame(stream_id, FRAME_TYPE_OPEN, 0, None)
+        return stream
+
+    def connect_stream(self, stream):
+        if self._socket is None:
+            raise ConnectError(None, None)
+        while True:
+            stream_id = self._current_id_index
+            self._current_id_index += 2
+            if self._current_id_index > 0xffff:
+                self._current_id_index = 1 if self._is_server else 2
+            if stream_id not in self._streams:
+                break
+        stream._stream_id = stream_id
+        stream._tunnel = self
         self._streams[stream_id] = stream
         self.write_frame(stream_id, FRAME_TYPE_OPEN, 0, None)
         return stream
