@@ -244,8 +244,6 @@ class PipeSocket(EventEmitter):
 
         if data.__class__ is Buffer:
             BaseBuffer.extend(self._socket._rbuffers, data)
-            if data._full and data._len < data._regain_size:
-                data.do_regain()
         else:
             BaseBuffer.write(self._socket._rbuffers, data)
         if self._socket._rbuffers._len > self._socket._rbuffers._drain_size and not self._socket._rbuffers._full:
