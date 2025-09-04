@@ -242,14 +242,15 @@ class PipeSocket(EventEmitter):
                 return False
             raise SocketClosed()
 
+        socket = self._socket
         if data.__class__ is Buffer:
-            BaseBuffer.extend(self._socket._rbuffers, data)
+            BaseBuffer.extend(socket._rbuffers, data)
         else:
-            BaseBuffer.write(self._socket._rbuffers, data)
-        if self._socket._rbuffers._len > self._socket._rbuffers._drain_size and not self._socket._rbuffers._full:
-            self._socket._rbuffers.do_drain()
-        self._loop.add_async(self._socket.emit_data, self._socket, self._socket._rbuffers)
-        if self._has_drain_event:
+            BaseBuffer.write(socket._rbuffers, data)
+        if socket._rbuffers._len > socket._rbuffers._drain_size and not socket._rbuffers._full:
+            socket._rbuffers.do_drain()
+        socket.emit_data(socket, socket._rbuffers)
+        if self._has_drain_event and not socket._rbuffers:
             self._loop.add_async(self.emit_drain, self)
         return True
 
