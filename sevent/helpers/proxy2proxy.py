@@ -11,7 +11,7 @@ import traceback
 import threading
 import sevent
 from .utils import create_server, create_socket, config_signal
-from .simple_proxy import format_data_len, warp_write, http_protocol_parse, socks5_protocol_parse
+from .simple_proxy import format_data_len, warp_write, http_protocol_parse, socks5_protocol_parse, socks4_protocol_parse
 from .tcp2proxy import http_build_protocol, socks5_build_protocol, socks5_read_protocol
 
 def check_host(forward_host, allow_hosts):
@@ -104,11 +104,12 @@ async def tcp_proxy(conns, conn, proxy_type, proxy_host, proxy_port, noproxy_hos
         conn.enable_nodelay()
         buffer = await conn.recv()
         if buffer[0] == 5:
-            protocol = 'socks5'
-            host, port, data = await socks5_protocol_parse(conn, buffer)
+            is_allowed, protocol, host, port, data = await socks5_protocol_parse(conn, buffer)
+        elif buffer[0] == 4:
+            is_allowed, protocol, host, port, data = await socks4_protocol_parse(conn, buffer)
         else:
             protocol = 'http'
-            host, port, data = await http_protocol_parse(conn, buffer)
+            is_allowed, host, port, data = await http_protocol_parse(conn, buffer)
         if not host or not port:
             logging.info("empty address")
             return

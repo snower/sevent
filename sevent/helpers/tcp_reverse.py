@@ -14,7 +14,7 @@ import socket
 import hashlib
 import sevent
 from .utils import create_server, create_socket, config_signal, format_data_len
-from .simple_proxy import http_protocol_parse, socks5_protocol_parse
+from .simple_proxy import http_protocol_parse, socks5_protocol_parse, socks4_protocol_parse
 
 conns, status = {}, {"remote_conn": [], "local_conn": []}
 
@@ -39,24 +39,35 @@ async def parse_forward_address(conn, proxy_type):
 
     if proxy_type == "socks5" or proxy_type == "socks5s":
         buffer = await conn.recv()
-        host, port, data = await socks5_protocol_parse(conn, buffer)
+        is_allowed, protocol, host, port, data = await socks5_protocol_parse(conn, buffer)
         if not host or not port:
             raise Exception("parse error")
-        buffer.write(data + buffer.read())
-        return (host, port)
+        if data:
+            buffer.write(data + buffer.read())
+        return host, port
+
+    if proxy_type == "socks4" or proxy_type == "socks4a":
+        buffer = await conn.recv()
+        is_allowed, protocol, host, port, data = await socks4_protocol_parse(conn, buffer)
+        if not host or not port:
+            raise Exception("parse error")
+        if data:
+            buffer.write(data + buffer.read())
+        return host, port
 
     if proxy_type == "http":
         buffer = await conn.recv()
-        host, port, data = await http_protocol_parse(conn, buffer)
+        is_allowed, host, port, data = await http_protocol_parse(conn, buffer)
         if not host or not port:
             raise Exception("parse error")
-        buffer.write(data + buffer.read())
-        return (host, port)
+        if data:
+            buffer.write(data + buffer.read())
+        return host, port
 
     if proxy_type == "redirect":
         address_data = conn.socket.getsockopt(socket.SOL_IP, 80, 16)
         host, port = socket.inet_ntoa(address_data[4:8]), struct.unpack(">H", address_data[2:4])[0]
-        return (host, port)
+        return host, port
     raise Exception("parse error")
 
 async def write_forward_address(conn, forward_address):
@@ -67,7 +78,7 @@ async def read_forward_address(conn):
     host_len, = struct.unpack("!H", (await conn.recv(2)).read(2))
     host = sevent.utils.ensure_unicode((await conn.recv(host_len)).read(host_len))
     port, = struct.unpack("!H", (await conn.recv(2)).read(2))
-    return (host, port)
+    return host, port
 
 async def tcp_forward(conn, forward_address, conns, status, conn_status):
     start_time = time.time()
@@ -383,7 +394,8 @@ def main(argv):
     parser.add_argument('-f', dest='forward_host', default="",
                         help='server and client mode forward host , accept format [remote_host:remote_port] (default: )')
     parser.add_argument('-T', dest='proxy_type', default="",
-                        choices=("raw", "http", "socks5", "socks5s", "redirect"), help='server and client mode local listen proxy type (default: raw)')
+                        choices=("raw", "http", "socks4", "socks4a", "socks5", "socks5s", "redirect"),
+                        help='server and client mode local listen proxy type (default: raw)')
     parser.add_argument('-t', dest='timeout', default=7200,
                         type=int, help='no read/write timeout (default: 7200)')
     args = parser.parse_args(args=argv)

@@ -135,6 +135,32 @@ async def socks5_protocol_parse(conn, buffer, allow_host_names=None, deny_host_n
         return True, protocol, host, port, data[host_len + 2:]
     return False, protocol, '', 0, None
 
+async def socks4_protocol_parse(conn, buffer, allow_host_names=None, deny_host_names=None):
+    data = buffer.read()
+    if len(data) < 9 or data[0] != 4 or data[1] != 1:
+        return False, "socks4", '', 0, None
+    host, port = socket.inet_ntoa(data[4:8]), struct.unpack('>H', data[2:4])[0]
+    data = data[8:]
+    try:
+        index = data.index(b'\x00')
+        data = data[index + 1:]
+        index = data.index(b'\x00')
+        host = data[:index].decode("utf-8")
+        if not check_allow_deny_domain(allow_host_names, deny_host_names, (host, port)):
+            await conn.send(b'\x00\x5b\x00\x00\x00\x00\x00\x00')
+            return False, "socks4a", host, port, None
+        await conn.send(b'\x00\x5a\x00\x00\x00\x00\x00\x00')
+        return True, "socks4a", host, port, None
+    except ValueError:
+        if host.startswith("0.0.0."):
+            await conn.send(b'\x00\x5b\x00\x00\x00\x00\x00\x00')
+            return False, "socks4", "", 0, None
+        if not check_allow_deny_domain(allow_host_names, deny_host_names, (host, port)):
+            await conn.send(b'\x00\x5b\x00\x00\x00\x00\x00\x00')
+            return False, "socks4", host, port, None
+        await conn.send(b'\x00\x5a\x00\x00\x00\x00\x00\x00')
+        return True, "socks4", host, port, None
+
 async def tcp_proxy(conns, server, conn, status, allow_host_names=None, deny_host_names=None):
     start_time = time.time()
     host, port, protocol = '', 0, ''
@@ -144,6 +170,8 @@ async def tcp_proxy(conns, server, conn, status, allow_host_names=None, deny_hos
         buffer = await conn.recv()
         if buffer[0] == 5:
             is_allowed, protocol, host, port, data = await socks5_protocol_parse(conn, buffer, allow_host_names, deny_host_names)
+        elif buffer[0] == 4:
+            is_allowed, protocol, host, port, data = await socks4_protocol_parse(conn, buffer, allow_host_names, deny_host_names)
         else:
             protocol = 'http'
             is_allowed, host, port, data = await http_protocol_parse(conn, buffer, allow_host_names, deny_host_names)
