@@ -37,7 +37,7 @@ async def parse_forward_address(conn, proxy_type):
     if not proxy_type or proxy_type == "raw":
         return None
 
-    if proxy_type == "socks5":
+    if proxy_type == "socks5" or proxy_type == "socks5s":
         buffer = await conn.recv()
         host, port, data = await socks5_protocol_parse(conn, buffer)
         if not host or not port:
@@ -383,7 +383,7 @@ def main(argv):
     parser.add_argument('-f', dest='forward_host', default="",
                         help='server and client mode forward host , accept format [remote_host:remote_port] (default: )')
     parser.add_argument('-T', dest='proxy_type', default="",
-                        choices=("raw", "http", "socks5", "redirect"), help='server and client mode local listen proxy type (default: raw)')
+                        choices=("raw", "http", "socks5", "socks5s", "redirect"), help='server and client mode local listen proxy type (default: raw)')
     parser.add_argument('-t', dest='timeout', default=7200,
                         type=int, help='no read/write timeout (default: 7200)')
     args = parser.parse_args(args=argv)

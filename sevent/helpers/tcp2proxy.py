@@ -86,6 +86,33 @@ async def socks5_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_
     logging.info("socks5 proxy closed %s:%d -> %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], proxy_host, proxy_port,
                  remote_host, remote_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]), (time.time() - start_time) * 1000)
 
+async def socks5s_proxy(conns, conn, proxy_host, proxy_port, remote_host, remote_port, status):
+    start_time = time.time()
+    conn.write, pconn = warp_write(conn, status, "recv_len"), None
+
+    try:
+        conn.enable_nodelay()
+        pconn = create_socket((proxy_host, proxy_port))
+        await pconn.connectof((proxy_host, proxy_port))
+        await pconn.send(b"\x05\x01\x8e" + socks5_build_protocol(remote_host, remote_port))
+        pconn.write = warp_write(pconn, status, "send_len")
+        logging.info("socks5s proxy connected %s:%d -> %s:%d -> %s:%d", conn.address[0], conn.address[1], proxy_host, proxy_port,
+                     remote_host, remote_port)
+        await pconn.linkof(conn)
+    except sevent.errors.SocketClosed:
+        pass
+    except Exception as e:
+        logging.info("socks5s proxy error %s:%d -> %s:%d -> %s:%d %s %.2fms\r%s", conn.address[0], conn.address[1], proxy_host, proxy_port,
+                     remote_host, remote_port, e, (time.time() - start_time) * 1000, traceback.format_exc())
+        return
+    finally:
+        conn.close()
+        if pconn: pconn.close()
+        conns.pop(id(conn), None)
+
+    logging.info("socks5s proxy closed %s:%d -> %s:%d -> %s:%d %s %s %.2fms", conn.address[0], conn.address[1], proxy_host, proxy_port,
+                 remote_host, remote_port, format_data_len(status["send_len"]), format_data_len(status["recv_len"]), (time.time() - start_time) * 1000)
+
 def http_build_protocol(remote_host, remote_port):
     remote = (bytes(remote_host, "utf-8") if isinstance(remote_host, str) else remote_host) + b':' + bytes(str(remote_port), "utf-8")
     return b"CONNECT " + remote + b" HTTP/1.1\r\nHost: " + remote + b"\r\nUser-Agent: sevent\r\nProxy-Connection: Keep-Alive\r\n\r\n"
@@ -176,6 +203,8 @@ async def tcp_accept(server, args):
         status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
         if args.proxy_type == "http":
             sevent.current().call_async(http_proxy, conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
+        elif args.proxy_type == "socks5s":
+            sevent.current().call_async(socks5s_proxy, conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
         else:
             sevent.current().call_async(socks5_proxy, conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
         conns[id(conn)] = (conn, status)
@@ -185,7 +214,7 @@ def main(argv):
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
-    parser.add_argument('-T', dest='proxy_type', default="http", choices=("http", "socks5"), help='proxy type (default: http)')
+    parser.add_argument('-T', dest='proxy_type', default="http", choices=("http", "socks5", "socks5s"), help='proxy type (default: http)')
     parser.add_argument('-P', dest='proxy_host', default="127.0.0.1:8088", help='proxy host, accept format [proxy_host:proxy_port] (default: 127.0.0.1:8088)')
     parser.add_argument('-f', dest='forward_host', default="127.0.0.1:80", help='remote forward host , accept format [remote_host:remote_port] (default: 127.0.0.1:80)')
     args = parser.parse_args(args=argv)

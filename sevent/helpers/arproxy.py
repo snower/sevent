@@ -225,6 +225,12 @@ async def parse_forward(proxy_type, conns, conn, proxy_host, proxy_port,
                 await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
             else:
                 await socks5_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
+        elif proxy_type == "socks5s":
+            if check_noproxy_host(forward_host, forward_port, noproxy_hosts):
+                proxy_type = "none"
+                await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
+            else:
+                await socks5s_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
         else:
             await none_proxy(conns, conn, proxy_host, proxy_port, forward_host, forward_port, status)
     except Exception as e:
@@ -294,13 +300,13 @@ def main(argv):
     parser.add_argument('-b', dest='bind', default="0.0.0.0", help='local bind host (default: 0.0.0.0)')
     parser.add_argument('-p', dest='port', default=8088, type=int, help='local bind port (default: 8088)')
     parser.add_argument('-t', dest='timeout', default=7200, type=int, help='no read/write timeout (default: 7200)')
-    parser.add_argument('-T', dest='proxy_type', default="http", choices=("none", "http", "socks5"),
+    parser.add_argument('-T', dest='proxy_type', default="http", choices=("none", "http", "socks5", "socks5s"),
                         help='proxy type (default: http)')
     parser.add_argument('-P', dest='proxy_host', default="127.0.0.1:8088",
                         help='proxy host, accept format [proxy_host:proxy_port] (default: 127.0.0.1:8088)')
     parser.add_argument('-f', dest='default_forward_host', default="",
                         help='default remote forward host , accept format [remote_host:remote_port] (default: )')
-    parser.add_argument('-x', dest='default_forward_proxy_type', default="http", choices=("none", "http", "socks5"),
+    parser.add_argument('-x', dest='default_forward_proxy_type', default="http", choices=("none", "http", "socks5", "socks5s"),
                         help='default remote forward  proxy type (default: http)')
     parser.add_argument('-H', dest='allow_hosts', default="*",
                         help='allow hosts, accept format [host,*host,host*] (default: *)')
