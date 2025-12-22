@@ -11,9 +11,11 @@ import sys
 import time
 import traceback
 import weakref
+import zlib
 from collections import deque
 
 import sevent
+from sevent.helpers.tcp_forward import tcp_forward
 from sevent.helpers.simple_proxy import parse_allow_deny_host, parse_allow_deny_host_filename, check_timeout, tcp_proxy, \
     warp_write
 from sevent.helpers.utils import config_signal, create_server, create_socket, format_data_len
@@ -40,12 +42,14 @@ FRAME_MAX_SIZE = 2560
 
 
 class TunnelStream(Socket):
-    def __init__(self, loop=None, stream_id=None, tunnel=None, max_buffer_size=None):
+    def __init__(self, loop=None, stream_id=None, tunnel=None, max_buffer_size=None, compressor=None, decompressor=None):
         EventEmitter.__init__(self)
 
         self._loop = loop or instance()
         self._stream_id = stream_id
         self._tunnel = tunnel
+        self._compressor = compressor
+        self._decompressor = decompressor
         self._max_buffer_size = max_buffer_size or Socket.MAX_BUFFER_SIZE
         self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
@@ -189,6 +193,10 @@ class TunnelStream(Socket):
     def do_on_frame(self, frame_type, frame_flag, data):
         if not data or self._rbuffers is None:
             return
+        if self._decompressor is not None:
+            data = self._decompressor.decompress(data)
+            if not data:
+                return
         BaseBuffer.write(self._rbuffers, data)
         if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
             self._rbuffers.do_drain()
@@ -219,11 +227,21 @@ class TunnelStream(Socket):
                 return False
             raise SocketClosed()
         if data.__class__ is Buffer:
-            BaseBuffer.extend(self._wbuffers, data)
+            if self._compressor is not None:
+                if not data:
+                    return True if not self._wbuffers else False
+                BaseBuffer.write(self._wbuffers, self._compressor.compress(data.read()))
+                BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+            else:
+                BaseBuffer.extend(self._wbuffers, data)
             if data._full and data._len < data._regain_size:
                 data.do_regain()
         else:
-            BaseBuffer.write(self._wbuffers, data)
+            if self._compressor is not None:
+                BaseBuffer.write(self._wbuffers, self._compressor.compress(data))
+                BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+            else:
+                BaseBuffer.write(self._wbuffers, data)
         if self._wbuffers._len > self._wbuffers._drain_size and not self._wbuffers._full:
             self._wbuffers.do_drain()
         if not self._writing and not self._recv_drain_waiting_regain:
@@ -256,6 +274,7 @@ class TcpTunnel(EventEmitter):
         self._loop = loop or instance()
         self._is_server = is_server
         self._socket = None
+        self._compress_factory = None
         self._streams = {}
         self._current_id_index = 1 if is_server else 2
         self._send_queue = deque()
@@ -282,8 +301,9 @@ class TcpTunnel(EventEmitter):
             return "", 0
         return self._socket.address
 
-    def update_socket(self, socket):
+    def update_socket(self, socket, compress_factory):
         self._socket = socket
+        self._compress_factory = compress_factory
         self._send_queue.clear()
         self._send_waiting_drain = False
         self._recv_length = 2
@@ -323,7 +343,8 @@ class TcpTunnel(EventEmitter):
                 self._current_id_index = 1 if self._is_server else 2
             if stream_id not in self._streams:
                 break
-        stream = TunnelStream(self._loop, stream_id, self)
+        stream = TunnelStream(self._loop, stream_id, self, compressor=self._compress_factory.create_compressor(),
+                              decompressor=self._compress_factory.create_decompressor())
         self._streams[stream_id] = stream
         self.write_frame(stream_id, FRAME_TYPE_OPEN, 0, None)
         return stream
@@ -387,7 +408,8 @@ class TcpTunnel(EventEmitter):
             if self._socket is None:
                 return
             if frame_type == FRAME_TYPE_OPEN:
-                stream = TunnelStream(self._loop, stream_id, self)
+                stream = TunnelStream(self._loop, stream_id, self, compressor=self._compress_factory.create_compressor(),
+                                      decompressor=self._compress_factory.create_decompressor())
                 self._streams[stream_id] = stream
                 self._loop.add_async(self.emit_stream, self, stream)
             elif frame_type != FRAME_TYPE_RESET:
@@ -458,6 +480,35 @@ class TcpTunnel(EventEmitter):
         if id(self) in self._tunnels:
             self._tunnels.pop(id(self), None)
 
+
+class CompressFactory(object):
+    @classmethod
+    def build(cls, compress_method):
+        if compress_method is not None and compress_method == 1:
+            return ZlibDeflatedCompressFactory()
+        return CompressFactory()
+
+    def create_compressor(self):
+        return None
+
+    def create_decompressor(self):
+        return None
+
+
+class ZlibDeflatedCompressFactory(CompressFactory):
+    def create_compressor(self):
+        return zlib.compressobj(
+            level=int(os.environ.get("SEVENT_COMPRESS_LEVEL", 6)),
+            method=zlib.DEFLATED,
+            wbits=-zlib.MAX_WBITS
+        )
+
+    def create_decompressor(self):
+        return zlib.decompressobj(
+            wbits=-zlib.MAX_WBITS
+        )
+
+
 def gen_sign_key(key):
     t = struct.pack("I", int(time.time()))
     oncestr = os.urandom(16)
@@ -466,7 +517,7 @@ def gen_sign_key(key):
 def check_sign_key(key, sign_key):
     return sign_key[20:] == hashlib.md5(sign_key[:20] + sevent.utils.ensure_bytes(key)).digest()
 
-async def handler_server_conn(tunnel, conn, key):
+async def handler_server_conn(conns, tunnel, conn, key, is_compress_mode, error_forward_address):
     def on_timeout():
         if conn is None or tunnel._socket is conn:
             return
@@ -476,27 +527,48 @@ async def handler_server_conn(tunnel, conn, key):
     start_time = time.time()
     try:
         logging.info("remote conn connecting %s:%d", conn.address[0], conn.address[1])
-        data_length, = struct.unpack(">H", (await conn.recv(2)).read(2))
-        data = (await conn.recv(data_length)).read(data_length)
+        origin_data = (await conn.recv(2)).read()
+        data_length, = struct.unpack(">H", origin_data[:2])
+        if data_length <= 6 or data_length > 64 or data_length > len(origin_data):
+            if error_forward_address:
+                logging.info("remote conn length fail %s:%d %d %d", conn.address[0], conn.address[1], data_length, len(origin_data))
+                status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
+                conn.buffer[0].write(origin_data + conn.buffer[0].read())
+                await tcp_forward(conns, conn, error_forward_address, None, status)
+                return
+            await conn.send(struct.pack(">HHBBBB", 6, 0, FRAME_TYPE_AUTHED, 0, 1, 0))
+            await conn.closeof()
+            sevent.current().cancel_timeout(timeout_handler)
+            logging.info("remote conn length fail %s:%d %d", conn.address[0], conn.address[1], data_length)
+            return
+        data = origin_data[2:2 + data_length]
         _, frame_type, frame_flag, sign_key_length = struct.unpack(">HBBH", data[:6])
         sign_key = data[6:6 + sign_key_length]
+        compress_method_count = data[6 + sign_key_length] if len(data) > 6 + sign_key_length else -1
+        compress_methods = data[7 + sign_key_length:7 + sign_key_length + compress_method_count] if compress_method_count > 0 else None
         if not check_sign_key(key, sign_key):
-            await conn.send(struct.pack(">HHBBB", 5, 0, FRAME_TYPE_AUTHED, 0, 1))
+            if error_forward_address:
+                logging.info("remote conn auth fail %s:%d %s", conn.address[0], conn.address[1], sign_key)
+                status = {"recv_len": 0, "send_len": 0, "last_time": time.time(), "check_recv_len": 0, "check_send_len": 0}
+                conn.buffer[0].write(origin_data + conn.buffer[0].read())
+                await tcp_forward(conns, conn, error_forward_address, None, status)
+                return
+            await conn.send(struct.pack(">HHBBBB", 6, 0, FRAME_TYPE_AUTHED, 0, 1, 0))
             await conn.closeof()
             sevent.current().cancel_timeout(timeout_handler)
             logging.info("remote conn auth fail %s:%d %s", conn.address[0], conn.address[1], sign_key)
             return
 
         if tunnel._socket is not None:
-            await conn.send(struct.pack(">HHBBB", 5, 0, FRAME_TYPE_AUTHED, 0, 2))
+            await conn.send(struct.pack(">HHBBBB", 6, 0, FRAME_TYPE_AUTHED, 0, 2, 0))
             await conn.closeof()
             sevent.current().cancel_timeout(timeout_handler)
             logging.info("remote conn auth fail %s:%d %s", conn.address[0], conn.address[1], sign_key)
             return
 
-        await conn.send(struct.pack(">HHBBB", 5, 0, FRAME_TYPE_AUTHED, 0, 0))
+        await conn.send(struct.pack(">HHBBBB", 6, 0, FRAME_TYPE_AUTHED, 0, 0, compress_methods[0] if is_compress_mode and compress_methods else 0))
         sevent.current().cancel_timeout(timeout_handler)
-        tunnel.update_socket(conn)
+        tunnel.update_socket(conn, CompressFactory.build(compress_methods[0] if is_compress_mode and compress_methods else 0))
         logging.info("remote conn succeed %s:%d", conn.address[0], conn.address[1])
         await conn.join()
     except sevent.errors.SocketClosed:
@@ -510,13 +582,13 @@ async def handler_server_conn(tunnel, conn, key):
             conn.close()
     logging.info("remote conn closed %s:%d %.2fms", conn.address[0], conn.address[1], (time.time() - start_time) * 1000)
 
-async def run_tunnel_server(tunnel, listen_host, listen_port, key):
+async def run_tunnel_server(conns, tunnel, listen_host, listen_port, key, is_compress_mode, error_forward_address):
     server = create_server((listen_host, listen_port))
     while True:
         conn = await server.accept()
-        sevent.current().call_async(handler_server_conn, tunnel, conn, key)
+        sevent.current().call_async(handler_server_conn, conns, tunnel, conn, key, is_compress_mode, error_forward_address)
 
-async def run_tunnel_client(tunnel, connect_host, connect_port, key):
+async def run_tunnel_client(tunnel, connect_host, connect_port, key, is_compress_mode):
     while True:
         start_time = time.time()
         is_connected, conn = False, None
@@ -532,17 +604,19 @@ async def run_tunnel_client(tunnel, connect_host, connect_port, key):
             timeout_handler = sevent.current().add_timeout(15, on_timeout)
 
             sign_key = gen_sign_key(key)
-            await conn.send(struct.pack("!HHBBH", 6 + len(sign_key), 0, FRAME_TYPE_AUTH, 0, len(sign_key)) + sign_key)
+            compressed = b'\x01\x01' if is_compress_mode else b'\x00'
+            await conn.send(struct.pack("!HHBBH", 6 + len(sign_key) + len(compressed), 0, FRAME_TYPE_AUTH, 0, len(sign_key)) + sign_key + compressed)
             data_length, = struct.unpack(">H", (await conn.recv(2)).read(2))
             data = (await conn.recv(data_length)).read(data_length)
             _, frame_type, frame_flag, connect_result = struct.unpack(">HBBB", data[:5])
+            compress_method = data[5] if len(data) >= 6 else 0
             if connect_result != 0:
                 await conn.closeof()
                 sevent.current().cancel_timeout(timeout_handler)
                 logging.info("local conn fail -> %s:%d %d", connect_host, connect_port, connect_result)
             else:
                 sevent.current().cancel_timeout(timeout_handler)
-                tunnel.update_socket(conn)
+                tunnel.update_socket(conn, CompressFactory.build(compress_method))
                 is_connected = True
                 logging.info("local conn succeed -> %s:%d", connect_host, connect_port)
                 await conn.join()
@@ -622,6 +696,8 @@ def main(argv):
     parser.add_argument('-d', dest='deny_hosts', default=[], action="append", type=str, help='deny forward host name')
     parser.add_argument('-A', dest='allow_filename', default="", type=str, help='allow forward host name config filename')
     parser.add_argument('-D', dest='deny_filename', default="", type=str, help='deny forward host name config filename')
+    parser.add_argument('-C', dest='is_compress_mode', nargs='?', const=True, default=False, type=bool, help='is client mode (defualt: False)')
+    parser.add_argument('-e', dest='error_forward_host', default="", help='error key forward host, accept format [proxy_host:proxy_port]')
     args = parser.parse_args(args=argv)
     config_signal()
 
@@ -636,14 +712,25 @@ def main(argv):
         allow_host_names.extend(parse_allow_deny_host_filename(args.allow_filename))
     if args.deny_filename:
         deny_host_names.extend(parse_allow_deny_host_filename(args.deny_filename))
+    if args.error_forward_host:
+        error_forward_info = args.error_forward_host.split(":")
+        if len(error_forward_info) == 1:
+            if not error_forward_info[0].isdigit():
+                error_forward_address = (error_forward_info[0], 80)
+            else:
+                error_forward_address = ("127.0.0.1", int(error_forward_info[0]))
+        else:
+            error_forward_address = (error_forward_info[0], int(error_forward_info[1]))
+    else:
+        error_forward_address = None
 
     conns = {}
     tunnel = TcpTunnel(is_server=not args.is_client_mode)
     if args.is_client_mode:
-        sevent.current().call_async(run_tunnel_client, tunnel, args.connect_host, args.connect_port, args.key)
+        sevent.current().call_async(run_tunnel_client, tunnel, args.connect_host, args.connect_port, args.key, args.is_compress_mode)
         logging.info("listen server at %s:%d -> %s:%s", args.bind, args.port, args.connect_host, args.connect_port)
     else:
-        sevent.current().call_async(run_tunnel_server, tunnel, args.listen_host, args.listen_port, args.key)
+        sevent.current().call_async(run_tunnel_server, conns, tunnel, args.listen_host, args.listen_port, args.key, args.is_compress_mode, error_forward_address)
         logging.info("listen server at %s:%d -> %s:%s", args.bind, args.port, args.listen_host, args.listen_port)
     tunnel.on("stream", lambda _, stream: handle_proxy_remote_stream(conns, tunnel, stream,
                                                                      allow_host_names or None, deny_host_names or None))
