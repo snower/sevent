@@ -124,8 +124,8 @@ class TunnelStream(Socket):
             self._state = STATE_CLOSING
             if self._recv_drain_waiting_regain:
                 self._recv_drain_waiting_regain = False
-                if not self._writing and self._wbuffers:
-                    self.do_write_drain()
+            if not self._writing:
+                self.do_write_drain()
         else:
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSED, 0, None)
             self.do_close()
@@ -162,7 +162,7 @@ class TunnelStream(Socket):
         tunnel = TcpTunnel.get_tunnel(address[0])
         if not tunnel:
             raise ConnectError(None, None)
-        self._tunnel.connect_stream(self)
+        tunnel.connect_stream(self)
         self._state = STATE_STREAMING
         self._rbuffers.on("drain", lambda _: self.drain())
         self._rbuffers.on("regain", lambda _: self.regain())
@@ -189,6 +189,8 @@ class TunnelStream(Socket):
                 self.do_write_drain()
             else:
                 self._wbuffers.do_regain()
+                if self._state == STATE_CLOSING:
+                    self.close()
 
     def do_on_frame(self, frame_type, frame_flag, data):
         if not data or self._rbuffers is None:
@@ -204,6 +206,7 @@ class TunnelStream(Socket):
 
     def do_write_drain(self):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
+            self._writing = False
             return
         if not self._recv_drain_waiting_regain and self._wbuffers:
             try:
@@ -218,7 +221,7 @@ class TunnelStream(Socket):
                 self._error(e)
         else:
             self._writing = False
-            if self._state == STATE_CLOSING:
+            if self._state == STATE_CLOSING and not self._recv_drain_waiting_regain:
                 self.close()
 
     def write(self, data):
@@ -226,10 +229,10 @@ class TunnelStream(Socket):
             if self.ignore_write_closed_error:
                 return False
             raise SocketClosed()
+        if not data:
+            return True if not self._wbuffers else False
         if data.__class__ is Buffer:
             if self._compressor is not None:
-                if not data:
-                    return True if not self._wbuffers else False
                 BaseBuffer.write(self._wbuffers, self._compressor.compress(data.read()))
                 BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
             else:
@@ -361,6 +364,8 @@ class TcpTunnel(EventEmitter):
                 break
         stream._stream_id = stream_id
         stream._tunnel = self
+        stream._compressor = self._compress_factory.create_compressor()
+        stream._decompressor = self._compress_factory.create_decompressor()
         self._streams[stream_id] = stream
         self.write_frame(stream_id, FRAME_TYPE_OPEN, 0, None)
         return stream
