@@ -195,7 +195,7 @@ class TunnelStream(Socket):
                 self.do_write_drain()
             else:
                 self._wbuffers.do_regain()
-                if self._state == STATE_CLOSING:
+                if self._state == STATE_CLOSING and not self._writing:
                     self.close()
 
     def do_on_frame(self, frame_type, frame_flag, data):
