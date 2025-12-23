@@ -117,9 +117,15 @@ class TunnelStream(Socket):
             self.do_close()
 
     def do_end(self):
-        self._frame_closing = True
         if self._state != STATE_STREAMING:
+            if self._rbuffers is None or self._wbuffers is None:
+                return
+            if not self._frame_closing and self._state == STATE_CLOSED:
+                self._tunnel.write_frame(self._stream_id, FRAME_TYPE_CLOSED, 0, None)
+                self.do_close()
+            self._frame_closing = True
             return
+        self._frame_closing = True
         if self._wbuffers:
             self._state = STATE_CLOSING
             if self._recv_drain_waiting_regain:
