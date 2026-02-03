@@ -19,7 +19,7 @@ from sevent.helpers.tcp_forward import tcp_forward
 from sevent.helpers.simple_proxy import parse_allow_deny_host, parse_allow_deny_host_filename, check_timeout, tcp_proxy, \
     warp_write
 from sevent.helpers.utils import config_signal, create_server, create_socket, format_data_len
-from ..buffer import Buffer, BaseBuffer
+from ..buffer import Buffer, BaseBuffer, RECV_BUFFER_SIZE
 from ..errors import SocketClosed, ConnectError
 from ..event import EventEmitter, null_emit_callback
 from ..loop import instance
@@ -195,14 +195,21 @@ class TunnelStream(Socket):
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DRAIN, 0, None, is_can_queued=False)
 
     def regain(self):
-        if self._decompressor is not None and self._decompressor_rbuffers:
+        if self._decompressor is not None:
             has_data = False
-            while self._decompressor_rbuffers and self._rbuffers._len <= self._rbuffers._drain_size:
-                data = self._decompressor.decompress(self._decompressor_rbuffers.next())
-                if not data:
-                    continue
-                BaseBuffer.write(self._rbuffers, data)
-                has_data = True
+            if self._decompressor.unconsumed_tail and self._rbuffers._len <= self._rbuffers._drain_size:
+                data = self._decompressor.decompress(self._decompressor.unconsumed_tail, max(self._rbuffers._drain_size - self._rbuffers._len, RECV_BUFFER_SIZE))
+                if data:
+                    BaseBuffer.write(self._rbuffers, data)
+                    has_data = True
+            if not self._decompressor.unconsumed_tail and self._decompressor_rbuffers and self._rbuffers._len <= self._rbuffers._drain_size:
+                while self._decompressor_rbuffers and self._rbuffers._len <= self._rbuffers._drain_size:
+                    data = self._decompressor.decompress(self._decompressor_rbuffers.next(), max(self._rbuffers._drain_size - self._rbuffers._len, RECV_BUFFER_SIZE))
+                    if data:
+                        BaseBuffer.write(self._rbuffers, data)
+                        has_data = True
+                    if self._decompressor.unconsumed_tail:
+                        break
             if has_data:
                 if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
                     self._rbuffers.do_drain()
@@ -239,10 +246,10 @@ class TunnelStream(Socket):
         if not data or self._rbuffers is None:
             return
         if self._decompressor is not None:
-            if self._rbuffers._full or self._decompressor_rbuffers:
+            if self._rbuffers._full or self._decompressor.unconsumed_tail or self._decompressor_rbuffers:
                 BaseBuffer.write(self._decompressor_rbuffers, data)
                 return
-            data = self._decompressor.decompress(data)
+            data = self._decompressor.decompress(data, max(self._rbuffers._drain_size - self._rbuffers._len, RECV_BUFFER_SIZE))
             if not data:
                 return
         BaseBuffer.write(self._rbuffers, data)
