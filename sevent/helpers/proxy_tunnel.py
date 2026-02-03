@@ -192,7 +192,7 @@ class TunnelStream(Socket):
 
     def drain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
-            self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DRAIN, 0, None)
+            self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DRAIN, 0, None, is_can_queued=False)
 
     def regain(self):
         if self._decompressor is not None and self._decompressor_rbuffers:
@@ -208,11 +208,11 @@ class TunnelStream(Socket):
                     self._rbuffers.do_drain()
                 else:
                     if self._state in (STATE_STREAMING, STATE_CLOSING):
-                        self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None)
+                        self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None, is_can_queued=False)
                 self._loop.add_async(self.emit_data, self, self._rbuffers)
                 return
         if self._state in (STATE_STREAMING, STATE_CLOSING):
-            self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None)
+            self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None, is_can_queued=False)
 
     def do_on_drain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
@@ -432,10 +432,10 @@ class TcpTunnel(EventEmitter):
             return
         self._streams.pop(stream.stream_id, None)
 
-    def write_frame(self, stream_id, frame_type, frame_flag, data):
+    def write_frame(self, stream_id, frame_type, frame_flag, data, is_can_queued=True):
         if self._socket is None:
-            raise SocketClosed()
-        if self._send_waiting_drain:
+            return
+        if self._send_waiting_drain and is_can_queued:
             self._send_queue.append((stream_id, frame_type, frame_flag, data))
         else:
             if data is not None:
