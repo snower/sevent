@@ -53,6 +53,8 @@ class TunnelStream(Socket):
         self._max_buffer_size = max_buffer_size or Socket.MAX_BUFFER_SIZE
         self._rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._wbuffers = Buffer(max_buffer_size=self._max_buffer_size)
+        self._compressor_waiting_flush = False
+        self._decompressor_rbuffers = Buffer(max_buffer_size=self._max_buffer_size)
         self._state = STATE_STREAMING if tunnel else STATE_INITIALIZED
         self._has_drain_event = False
         self._writing = False
@@ -92,6 +94,9 @@ class TunnelStream(Socket):
     def end(self):
         if self._state != STATE_STREAMING:
             return
+        if self._compressor_waiting_flush and self._wbuffers is not None:
+            BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+            self._compressor_waiting_flush = False
         if self._wbuffers:
             self._state = STATE_CLOSING
         else:
@@ -101,6 +106,9 @@ class TunnelStream(Socket):
         if self._state == STATE_CLOSED:
             return
         self._state = STATE_CLOSED
+        if self._compressor_waiting_flush and self._wbuffers is not None:
+            BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+            self._compressor_waiting_flush = False
         if not self._frame_closing:
             self._wbuffers.read()
             try:
@@ -126,6 +134,9 @@ class TunnelStream(Socket):
             self._frame_closing = True
             return
         self._frame_closing = True
+        if self._compressor_waiting_flush and self._wbuffers is not None:
+            BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+            self._compressor_waiting_flush = False
         if self._wbuffers:
             self._state = STATE_CLOSING
             if self._recv_drain_waiting_regain:
@@ -154,6 +165,11 @@ class TunnelStream(Socket):
             self._wbuffers.close()
             self._rbuffers = None
             self._wbuffers = None
+            self._decompressor_rbuffers = None
+            self._compressor.flush(zlib.Z_FINISH)
+            self._decompressor.flush(zlib.Z_FINISH)
+            self._compressor = None
+            self._decompressor = None
         self._loop.add_async(on_close)
 
     def _error(self, error):
@@ -179,17 +195,38 @@ class TunnelStream(Socket):
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_DRAIN, 0, None)
 
     def regain(self):
+        if self._decompressor is not None and self._decompressor_rbuffers:
+            has_data = False
+            while self._decompressor_rbuffers and self._rbuffers._len <= self._rbuffers._drain_size:
+                data = self._decompressor.decompress(self._decompressor_rbuffers.next())
+                if not data:
+                    continue
+                BaseBuffer.write(self._rbuffers, data)
+                has_data = True
+            if has_data:
+                if self._rbuffers._len > self._rbuffers._drain_size and not self._rbuffers._full:
+                    self._rbuffers.do_drain()
+                else:
+                    if self._state in (STATE_STREAMING, STATE_CLOSING):
+                        self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None)
+                self._loop.add_async(self.emit_data, self, self._rbuffers)
+                return
         if self._state in (STATE_STREAMING, STATE_CLOSING):
             self._tunnel.write_frame(self._stream_id, FRAME_TYPE_REGAIN, 0, None)
 
     def do_on_drain(self):
         if self._state in (STATE_STREAMING, STATE_CLOSING):
+            if self._recv_drain_waiting_regain:
+                return
             self._recv_drain_waiting_regain = True
             self._wbuffers.do_drain()
 
     def do_on_regain(self):
         self._recv_drain_waiting_regain = False
         if self._state in (STATE_STREAMING, STATE_CLOSING):
+            if self._compressor_waiting_flush and len(self._wbuffers) < FRAME_MAX_SIZE and not self._writing:
+                BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+                self._compressor_waiting_flush = False
             if not self._writing and self._wbuffers:
                 self._writing = True
                 self.do_write_drain()
@@ -202,6 +239,9 @@ class TunnelStream(Socket):
         if not data or self._rbuffers is None:
             return
         if self._decompressor is not None:
+            if self._rbuffers._full or self._decompressor_rbuffers:
+                BaseBuffer.write(self._decompressor_rbuffers, data)
+                return
             data = self._decompressor.decompress(data)
             if not data:
                 return
@@ -214,6 +254,9 @@ class TunnelStream(Socket):
         if self._state not in (STATE_STREAMING, STATE_CLOSING):
             self._writing = False
             return
+        if self._compressor_waiting_flush and len(self._wbuffers) < FRAME_MAX_SIZE and not self._recv_drain_waiting_regain:
+            BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+            self._compressor_waiting_flush = False
         if not self._recv_drain_waiting_regain and self._wbuffers:
             try:
                 data = BaseBuffer.read(self._wbuffers, FRAME_MAX_SIZE) if len(self._wbuffers) > FRAME_MAX_SIZE else BaseBuffer.read(self._wbuffers)
@@ -240,7 +283,11 @@ class TunnelStream(Socket):
         if data.__class__ is Buffer:
             if self._compressor is not None:
                 BaseBuffer.write(self._wbuffers, self._compressor.compress(data.read()))
-                BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+                if not self._compressor_waiting_flush:
+                    if len(self._wbuffers) >= FRAME_MAX_SIZE:
+                        self._compressor_waiting_flush = True
+                    else:
+                        BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
             else:
                 BaseBuffer.extend(self._wbuffers, data)
             if data._full and data._len < data._regain_size:
@@ -248,7 +295,11 @@ class TunnelStream(Socket):
         else:
             if self._compressor is not None:
                 BaseBuffer.write(self._wbuffers, self._compressor.compress(data))
-                BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
+                if not self._compressor_waiting_flush:
+                    if len(self._wbuffers) >= FRAME_MAX_SIZE:
+                        self._compressor_waiting_flush = True
+                    else:
+                        BaseBuffer.write(self._wbuffers, self._compressor.flush(zlib.Z_SYNC_FLUSH))
             else:
                 BaseBuffer.write(self._wbuffers, data)
         if self._wbuffers._len > self._wbuffers._drain_size and not self._wbuffers._full:

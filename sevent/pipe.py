@@ -243,6 +243,10 @@ class PipeSocket(EventEmitter):
             raise SocketClosed()
 
         socket = self._socket
+        if socket is None or socket._state != STATE_STREAMING:
+            if self.ignore_write_closed_error:
+                return False
+            raise SocketClosed()
         if data.__class__ is Buffer:
             BaseBuffer.extend(socket._rbuffers, data)
         else:
