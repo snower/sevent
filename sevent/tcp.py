@@ -316,8 +316,7 @@ class Socket(EventEmitter):
         def on_timeout_cb():
             self._connect_timeout_handler = None
             if self._state == STATE_CONNECTING:
-                if not self._is_enable_fast_open:
-                    self._error(ConnectTimeout("connect time out %s" % str(address)))
+                self._error(ConnectTimeout("connect time out %s" % str(address)))
 
         def do_connect(hostname, ip):
             if self._state == STATE_CLOSED:
@@ -339,7 +338,7 @@ class Socket(EventEmitter):
                 self._address = addr[4]
                 self._is_resolve = True
 
-                if self._is_enable_fast_open:
+                if self._is_enable_fast_open and self._wbuffers:
                     try:
                         self._socket.setsockopt(socket.SOL_TCP, 23, 5)
                     except Exception as e:
@@ -353,9 +352,18 @@ class Socket(EventEmitter):
                         get_logger().warning('nodela error: %s', e)
                         self._is_enable_nodelay = False
 
-                if self._is_enable_fast_open:
-                    if self._wbuffers and not self._connect_handler:
-                        self._loop.add_async(self._connect_and_write)
+                if self._is_enable_fast_open and self._wbuffers:
+                    try:
+                        self._wbuffers.read(self._socket.sendto(self._wbuffers.join(), MSG_FASTOPEN, self._address))
+                        self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
+                    except socket.error as e:
+                        if e.args[0] == errno.EINPROGRESS:
+                            self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
+                            return
+                        elif e.args[0] == errno.ENOTCONN:
+                            get_logger().error('fast open not supported on this OS')
+                            self._is_enable_fast_open = False
+                        return self._loop.add_async(self._error, e)
                 else:
                     self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
                     self._socket.connect(self._address)
@@ -480,37 +488,6 @@ class Socket(EventEmitter):
             if self._state == STATE_CLOSING:
                 self.close()
 
-    def _connect_and_write(self):
-        if self._wbuffers and self._address:
-            def on_timeout_cb():
-                if self._state == STATE_CONNECTING:
-                    if self._is_enable_fast_open:
-                        self._error(ConnectTimeout("connect time out %s" % (str(self._address),)))
-
-            if self._connect_timeout_handler:
-                self._loop.cancel_timeout(self._connect_timeout_handler)
-                self._connect_timeout_handler = None
-            self._connect_timeout_handler = self._loop.add_timeout(self._connect_timeout, on_timeout_cb)
-
-            try:
-                self._wbuffers.read(self._socket.sendto(self._wbuffers.join(), MSG_FASTOPEN, self._address))
-                self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
-            except socket.error as e:
-                if e.args[0] == errno.EINPROGRESS:
-                    try:
-                        self._connect_handler = self._loop.add_fd(self._fileno, MODE_OUT, self._connect_cb)
-                    except Exception as e:
-                        self._error(e)
-                    return False
-                elif e.args[0] == errno.ENOTCONN:
-                    get_logger().error('fast open not supported on this OS')
-                    self._is_enable_fast_open = False
-                self._error(e)
-                return False
-            except Exception as e:
-                self._error(e)
-                return False
-
     if cbuffer is None:
         def _write(self):
             while self._wbuffers:
@@ -567,7 +544,7 @@ class Socket(EventEmitter):
 
     def write(self, data):
         if self._state != STATE_STREAMING:
-            if self._state == STATE_CONNECTING:
+            if (self._state == STATE_INITIALIZED and self._is_enable_fast_open) or self._state == STATE_CONNECTING:
                 if data.__class__ is Buffer:
                     BaseBuffer.extend(self._wbuffers, data)
                     if data._full and data._len < data._regain_size:
@@ -576,9 +553,6 @@ class Socket(EventEmitter):
                         self._wbuffers.do_drain()
                 else:
                     BaseBuffer.write(self._wbuffers, data)
-
-                if self._is_enable_fast_open and self._is_resolve and not self._connect_handler:
-                    return self._connect_and_write()
                 return False
             if self.ignore_write_closed_error:
                 return False
@@ -851,6 +825,9 @@ class WarpSocket(Socket):
     @property
     def buffer(self):
         return self._rbuffers, self._wbuffers
+
+    def enable_fast_open(self):
+        self._socket.enable_fast_open()
 
     @property
     def is_enable_fast_open(self):
